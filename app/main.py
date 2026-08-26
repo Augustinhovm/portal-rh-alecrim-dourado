@@ -23,14 +23,14 @@ def dashboard():
         data["bank_minutes"] = db_sum_bank()
         data["today_punches"] = TimeClock.query.filter(
             TimeClock.employee_id.in_(employee_ids),
-            func.date(TimeClock.punched_at) == today.isoformat()
+            func.date(TimeClock.punched_at) == today
         ).order_by(TimeClock.punched_at.desc()).limit(20).all() if employee_ids else []
         data["pending_requests"] = Request.query.filter_by(status="pending").order_by(Request.requested_at.desc()).limit(10).all()
         data["recent_certificates"] = MedicalCertificate.query.order_by(MedicalCertificate.uploaded_at.desc()).limit(10).all()
         data["certificates_received"] = MedicalCertificate.query.filter_by(status="recebido").count()
         data["incomplete_today"] = 0
         for eid in employee_ids:
-            count = TimeClock.query.filter(TimeClock.employee_id==eid, func.date(TimeClock.punched_at)==today.isoformat()).count()
+            count = TimeClock.query.filter(TimeClock.employee_id==eid, func.date(TimeClock.punched_at) == today).count()
             if count not in (0,4): data["incomplete_today"] += 1
     elif current_user.role == ROLE_MANAGER and current_user.employee:
         team_ids = [e.id for e in current_user.employee.team]
@@ -45,7 +45,7 @@ def dashboard():
         data["bank_minutes"] = sum(e.bank_minutes for e in current_user.employee.team)
         data["today_punches"] = TimeClock.query.filter(
             TimeClock.employee_id.in_(visible_ids),
-            func.date(TimeClock.punched_at) == today.isoformat()
+            func.date(TimeClock.punched_at) == today
         ).order_by(TimeClock.punched_at.desc()).limit(20).all() if visible_ids else []
         data["pending_requests"] = Request.query.filter(
             Request.employee_id.in_(team_ids), Request.status == "pending"
@@ -62,7 +62,7 @@ def dashboard():
 
             today_rows = TimeClock.query.filter(
                 TimeClock.employee_id == emp.id,
-                func.date(TimeClock.punched_at) == today.isoformat()
+                func.date(TimeClock.punched_at) == today
             ).order_by(TimeClock.punched_at.asc()).all()
             data["last_punch"] = today_rows[-1] if today_rows else None
             data["worked_today_minutes"] = _worked_minutes_for_day(today_rows)
@@ -79,8 +79,8 @@ def dashboard():
             ).all()
             month_adjustments = BankHourAdjustment.query.filter(
                 BankHourAdjustment.employee_id == emp.id,
-                func.date(BankHourAdjustment.created_at) >= month_start.isoformat(),
-                func.date(BankHourAdjustment.created_at) <= today.isoformat()
+                func.date(BankHourAdjustment.created_at) >= month_start,
+                func.date(BankHourAdjustment.created_at) <= today
             ).all()
 
             credits = sum(int(q.minutes or 0) for q in approved_month if q.request_type == "overtime")
@@ -106,7 +106,7 @@ def dashboard():
         data["pending"] = Request.query.filter_by(employee_id=emp.id, status="pending").count() if emp else 0
         data["today_punches"] = TimeClock.query.filter(
             TimeClock.employee_id == emp.id,
-            func.date(TimeClock.punched_at) == today.isoformat()
+            func.date(TimeClock.punched_at) == today
         ).order_by(TimeClock.punched_at).all() if emp else []
         data["closed_unacknowledged"] = []
         data["next_vacation"] = None

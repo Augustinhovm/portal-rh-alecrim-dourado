@@ -2,8 +2,6 @@
 __pycache__/
 *.pyc
 .env
-uploads/
 instance/
 app/uploads/*
 !app/uploads/.gitkeep
-

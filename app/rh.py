@@ -44,8 +44,8 @@ def _month_clock_summary(emp, year, month):
     last = date(year, month, calendar.monthrange(year, month)[1])
     rows = (TimeClock.query.filter(
         TimeClock.employee_id == emp.id,
-        func.date(TimeClock.punched_at) >= first.isoformat(),
-        func.date(TimeClock.punched_at) <= last.isoformat()
+        func.date(TimeClock.punched_at) >= first,
+        func.date(TimeClock.punched_at) <= last
     ).order_by(TimeClock.punched_at.asc()).all())
     grouped = {}
     for row in rows:
@@ -612,13 +612,13 @@ def clock():
             return redirect(url_for("rh.clock"))
 
         kinds = ["entrada", "saida_intervalo", "retorno", "saida"]
-        today_rows = TimeClock.query.filter(TimeClock.employee_id==emp.id, db.func.date(TimeClock.punched_at)==today_local().isoformat()).order_by(TimeClock.punched_at).all()
+        today_rows = TimeClock.query.filter(TimeClock.employee_id==emp.id, db.func.date(TimeClock.punched_at) == today_local()).order_by(TimeClock.punched_at).all()
         kind = kinds[min(len(today_rows), 3)]
         row = TimeClock(employee_id=emp.id, kind=kind, ip_address=request.headers.get("X-Forwarded-For", request.remote_addr))
         db.session.add(row); db.session.flush(); log_action("registrou ponto", "time_clock", row.id, kind); db.session.commit()
         flash(f"Ponto registrado: {kind.replace('_',' ')} às {row.punched_at.strftime('%H:%M:%S')}.", "success")
         return redirect(url_for("rh.clock"))
-    rows = TimeClock.query.filter(TimeClock.employee_id==emp.id, db.func.date(TimeClock.punched_at)==today_local().isoformat()).order_by(TimeClock.punched_at).all()
+    rows = TimeClock.query.filter(TimeClock.employee_id==emp.id, db.func.date(TimeClock.punched_at) == today_local()).order_by(TimeClock.punched_at).all()
     return render_template("clock.html", rows=rows)
 
 @bp.route("/certificates", methods=["GET", "POST"])
@@ -753,8 +753,8 @@ def certificates_print_batch():
     # O pedido é pelos documentos ANEXADOS no período; portanto usamos uploaded_at.
     rows = (MedicalCertificate.query
             .filter(
-                func.date(MedicalCertificate.uploaded_at) >= start.isoformat(),
-                func.date(MedicalCertificate.uploaded_at) <= end.isoformat(),
+                func.date(MedicalCertificate.uploaded_at) >= start,
+                func.date(MedicalCertificate.uploaded_at) <= end,
             )
             .order_by(MedicalCertificate.uploaded_at.asc(), MedicalCertificate.id.asc())
             .all())
@@ -1145,8 +1145,10 @@ def time_records():
     q = TimeClock.query.filter(TimeClock.employee_id.in_(ids)) if ids else TimeClock.query.filter(db.text("0=1"))
 
     employee_id = request.args.get("employee_id", type=int)
-    start_date = request.args.get("start_date")
-    end_date = request.args.get("end_date")
+    start_date_raw = request.args.get("start_date")
+    end_date_raw = request.args.get("end_date")
+    start_date = parse_date(start_date_raw) if start_date_raw else None
+    end_date = parse_date(end_date_raw) if end_date_raw else None
 
     if employee_id and employee_id in ids:
         q = q.filter(TimeClock.employee_id == employee_id)
@@ -1156,7 +1158,14 @@ def time_records():
         q = q.filter(func.date(TimeClock.punched_at) <= end_date)
 
     rows = q.order_by(TimeClock.punched_at.desc()).limit(500).all()
-    return render_template("time_records.html", rows=rows, employees=emps, selected_employee=employee_id, start_date=start_date or "", end_date=end_date or "")
+    return render_template(
+        "time_records.html",
+        rows=rows,
+        employees=emps,
+        selected_employee=employee_id,
+        start_date=start_date_raw or "",
+        end_date=end_date_raw or "",
+    )
 
 
 @bp.route("/employees/<int:employee_id>/time-report.pdf")
@@ -1194,8 +1203,8 @@ def employee_time_report_pdf(employee_id):
     last_day = date(year, month, calendar.monthrange(year, month)[1])
     rows = (TimeClock.query
             .filter(TimeClock.employee_id == emp.id,
-                    func.date(TimeClock.punched_at) >= first_day.isoformat(),
-                    func.date(TimeClock.punched_at) <= last_day.isoformat())
+                    func.date(TimeClock.punched_at) >= first_day,
+                    func.date(TimeClock.punched_at) <= last_day)
             .order_by(TimeClock.punched_at.asc())
             .all())
 
@@ -1221,8 +1230,8 @@ def employee_time_report_pdf(employee_id):
 
     month_adjustments = (BankHourAdjustment.query
         .filter(BankHourAdjustment.employee_id == emp.id,
-                func.date(BankHourAdjustment.created_at) >= first_day.isoformat(),
-                func.date(BankHourAdjustment.created_at) <= last_day.isoformat())
+                func.date(BankHourAdjustment.created_at) >= first_day,
+                func.date(BankHourAdjustment.created_at) <= last_day)
         .all())
 
     # Extrato mensal completo do banco de horas.

@@ -182,3 +182,7 @@ A interface foi adaptada para smartphones e tablets: cabeçalho compacto, logo c
 
 ## V8.0 — Preparação para produção
 A V8.0 adiciona configuração por ambiente, WSGI, suporte a PostgreSQL, proteção CSRF, cookies seguros, cabeçalhos de segurança, limitação básica de tentativas de login, health check, backup local, arquivos de configuração para Render e documentação de implantação. A base SQLite atual permanece preservada e continua funcionando no ambiente local.
+
+
+## V8.0.1 — Compatibilidade PostgreSQL
+Corrige filtros de data que comparavam `DATE` com strings ISO, comportamento tolerado pelo SQLite mas rejeitado pelo PostgreSQL. Os filtros de ponto, dashboard, atestados, banco de horas e relatórios agora utilizam objetos `date` tipados.
