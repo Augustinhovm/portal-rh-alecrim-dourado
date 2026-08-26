@@ -1,0 +1,188 @@
+from datetime import date, time
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+from .extensions import db
+from .timezone import now_local, today_local
+
+ROLE_ADMIN = "admin"
+ROLE_MANAGER = "manager"
+ROLE_EMPLOYEE = "employee"
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(180), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default=ROLE_EMPLOYEE)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    must_change_password = db.Column(db.Boolean, default=False, nullable=False)
+    password_changed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    employee = db.relationship("Employee", back_populates="user", uselist=False)
+
+    @property
+    def is_active(self):
+        return self.active
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+class Employee(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), unique=True, nullable=False)
+    full_name = db.Column(db.String(180), nullable=False)
+    cpf = db.Column(db.String(14), unique=True, nullable=False)
+    rg = db.Column(db.String(30))
+    birth_date = db.Column(db.Date)
+    phone = db.Column(db.String(30))
+    address = db.Column(db.String(255))
+    registration = db.Column(db.String(40), unique=True)
+    job_title = db.Column(db.String(120), nullable=False)
+    department = db.Column(db.String(120), nullable=False)
+    project = db.Column(db.String(120), nullable=False, default="Administração")
+    admission_date = db.Column(db.Date, nullable=False, default=today_local)
+    contract_type = db.Column(db.String(80), default="CLT")
+    weekly_hours = db.Column(db.Float, default=44)
+    standard_start = db.Column(db.Time, default=time(8,0))
+    standard_end = db.Column(db.Time, default=time(17,0))
+    manager_id = db.Column(db.Integer, db.ForeignKey("employee.id"))
+    bank_minutes = db.Column(db.Integer, default=0, nullable=False)
+    point_pin_hash = db.Column(db.String(255))
+    profile_photo = db.Column(db.String(255))
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    user = db.relationship("User", back_populates="employee")
+    manager = db.relationship("Employee", remote_side=[id], backref="team")
+
+    def set_point_pin(self, pin):
+        self.point_pin_hash = generate_password_hash(pin)
+
+    def check_point_pin(self, pin):
+        return bool(self.point_pin_hash) and check_password_hash(self.point_pin_hash, pin)
+
+class TimeClock(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    punched_at = db.Column(db.DateTime, default=now_local, nullable=False, index=True)
+    kind = db.Column(db.String(30), nullable=False)  # entrada, saida_intervalo, retorno, saida
+    source = db.Column(db.String(30), default="portal", nullable=False)
+    ip_address = db.Column(db.String(64))
+    employee = db.relationship("Employee")
+
+
+class BankHourAdjustment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    minutes = db.Column(db.Integer, nullable=False)
+    reason = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False, index=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    employee = db.relationship("Employee")
+    creator = db.relationship("User", foreign_keys=[created_by])
+
+class MedicalCertificate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    start_date = db.Column(db.Date, nullable=False)
+    days = db.Column(db.Integer, nullable=False, default=1)
+    note = db.Column(db.String(255))
+    original_name = db.Column(db.String(255), nullable=False)
+    stored_name = db.Column(db.String(255), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    status = db.Column(db.String(30), default="recebido", nullable=False)
+    employee = db.relationship("Employee")
+
+class Request(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    request_type = db.Column(db.String(30), nullable=False) # bank_use, overtime, clock_adjustment
+    request_date = db.Column(db.Date, nullable=False)
+    start_time = db.Column(db.Time)
+    end_time = db.Column(db.Time)
+    minutes = db.Column(db.Integer, default=0)
+    reason = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), default="pending", nullable=False, index=True)
+    requested_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    decided_at = db.Column(db.DateTime)
+    decided_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+    decision_note = db.Column(db.Text)
+    target_clock_kind = db.Column(db.String(30))
+    bank_effect_applied = db.Column(db.Boolean, default=False, nullable=False)
+    bank_effect_applied_at = db.Column(db.DateTime)
+    employee = db.relationship("Employee")
+    decider = db.relationship("User", foreign_keys=[decided_by])
+
+class Document(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    category = db.Column(db.String(80), nullable=False)
+    title = db.Column(db.String(180), nullable=False)
+    original_name = db.Column(db.String(255), nullable=False)
+    stored_name = db.Column(db.String(255), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    employee = db.relationship("Employee")
+
+class AuditLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    action = db.Column(db.String(120), nullable=False)
+    entity = db.Column(db.String(80), nullable=False)
+    entity_id = db.Column(db.Integer)
+    details = db.Column(db.Text)
+    ip_address = db.Column(db.String(64))
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False, index=True)
+    user = db.relationship("User")
+
+
+class Vacation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    start_date = db.Column(db.Date, nullable=False)
+    days = db.Column(db.Integer, nullable=False, default=30)
+    note = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    employee = db.relationship("Employee")
+    creator = db.relationship("User", foreign_keys=[created_by])
+
+
+
+class VacationSchedule(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    planned_start = db.Column(db.Date, nullable=False)
+    planned_return = db.Column(db.Date)
+    days = db.Column(db.Integer, nullable=False, default=30)
+    status = db.Column(db.String(20), nullable=False, default="planned")  # planned, completed, cancelled
+    note = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    completed_at = db.Column(db.DateTime)
+    employee = db.relationship("Employee")
+    creator = db.relationship("User", foreign_keys=[created_by])
+
+class TimePeriodClosure(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), default="closed", nullable=False)
+    closed_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    closed_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    reopened_at = db.Column(db.DateTime)
+    reopened_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+    employee_viewed_at = db.Column(db.DateTime)
+    reason = db.Column(db.Text)
+    employee = db.relationship("Employee")
+    closer = db.relationship("User", foreign_keys=[closed_by])
+    __table_args__ = (db.UniqueConstraint("employee_id", "year", "month", name="uq_time_period_employee_month"),)
+
+class TimeReportAcknowledgement(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    acknowledged_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    employee = db.relationship("Employee")
+    __table_args__ = (db.UniqueConstraint("employee_id", "year", "month", name="uq_time_ack_employee_month"),)

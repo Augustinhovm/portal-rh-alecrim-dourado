@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Acesso · Portal RH Alecrim Dourado{% endblock %}
+{% block content %}
+<div class="auth-page">
+  <section class="auth-brand-panel" aria-label="Associação Alecrim Dourado">
+    <div class="auth-brand-inner">
+      <img class="auth-logo" src="{{ url_for('static', filename='img/alecrim-dourado-logo.png') }}" alt="Associação Alecrim Dourado">
+      <div class="auth-message">
+        <span class="auth-kicker">Portal interno</span>
+        <h1>Cuidando de quem cuida.</h1>
+        <p>Um espaço seguro para ponto, banco de horas, documentos e rotinas de RH da Associação Alecrim Dourado.</p>
+      </div>
+      <div class="auth-brand-shape auth-shape-one" aria-hidden="true"></div>
+      <div class="auth-brand-shape auth-shape-two" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <section class="auth-form-side">
+    <div class="auth-card">
+      <div class="auth-card-heading">
+        <span class="eyebrow">Portal RH</span>
+        <h2>Bem-vindo</h2>
+        <p>Entre com seu e-mail e senha para continuar.</p>
+      </div>
+
+      <form method="post" class="auth-form">
+        <label>E-mail
+          <input type="email" name="email" autocomplete="username" required placeholder="seuemail@associacao...">
+        </label>
+        <label>Senha
+          <input type="password" name="password" autocomplete="current-password" required placeholder="Digite sua senha">
+        </label>
+        <button type="submit" class="auth-submit">Entrar no Portal</button>
+      </form>
+
+      <div class="auth-help">
+        <span>Primeiro acesso ou senha provisória?</span>
+        <small>Utilize os dados fornecidos pelo RH. O sistema solicitará a criação da sua senha pessoal.</small>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

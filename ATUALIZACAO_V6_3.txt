@@ -1,0 +1,12 @@
+VERSÃO 6.3 - ESPELHO MENSAL DE PONTO
+
+Novidades:
+- Coluna Horas trabalhadas por dia.
+- Coluna Horas extras por dia, considerando solicitações de hora extra aprovadas.
+- Resumo mensal com total de horas trabalhadas registradas.
+- Total de horas extras aprovadas.
+- Total de horas descontadas / banco utilizado.
+- Créditos manuais de banco e saldo líquido do mês.
+
+Não há alteração de banco de dados nem nova dependência.
+Preserve as pastas instance e app/uploads ao atualizar.

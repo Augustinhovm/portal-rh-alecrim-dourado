@@ -1,0 +1,7 @@
+Portal RH - Atualização V6.2
+
+Correção:
+- Ajuste manual de ponto pelo RH agora aceita horários no formato HH:MM e HH:MM:SS.
+- Corrige o erro ValueError: unconverted data remains: :00 ao incluir/corrigir marcações.
+
+Não há alteração de banco de dados. Preserve as pastas instance e app\uploads.

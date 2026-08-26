@@ -1,0 +1,4 @@
+Portal RH V6.1
+
+Correcao do arquivo atualizar_v6_windows.bat, que na V6 foi empacotado com quebras de linha literais (\n).
+O iniciar_windows.bat tambem foi reforcado para executar diretamente o Python do ambiente virtual.

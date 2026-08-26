@@ -1,0 +1,20 @@
+PORTAL RH - ATUALIZAÇÃO V5
+
+1. Feche o Portal RH com CTRL+C.
+2. Faça uma cópia de segurança das pastas:
+   - instance
+   - app\uploads
+3. Copie os arquivos da V5 sobre a instalação atual e aceite substituir os arquivos existentes.
+4. NÃO apague a pasta instance.
+5. NÃO apague os arquivos existentes em app\uploads.
+6. Inicie no PowerShell com:
+   .\iniciar_windows.bat
+
+A nova tabela necessária para o controle de ajustes de banco de horas é criada automaticamente na primeira inicialização.
+
+NOVOS RECURSOS DO RH
+- Abra Colaboradores.
+- Clique no colaborador desejado.
+- Na tela individual, use "Controle de banco de horas" para crédito/débito manual.
+- Use "Controle individual de ponto" para incluir marcação esquecida, corrigir marcação ou remover duplicidade.
+- Toda alteração exige justificativa e fica registrada em Auditoria.

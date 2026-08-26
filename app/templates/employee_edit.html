@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="heading">
+  <div>
+    <h1>Editar colaborador</h1>
+    <p>Atualize os dados cadastrais e a foto de {{ emp.full_name }}.</p>
+  </div>
+  <a class="btn secondary" href="{{ url_for('rh.employee_detail', employee_id=emp.id) }}">Voltar ao perfil</a>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="panel form-grid">
+  <div class="full employee-edit-photo">
+    {% if emp.profile_photo %}
+      <img class="employee-photo-large" src="{{ url_for('rh.employee_photo', employee_id=emp.id) }}" alt="Foto de {{ emp.full_name }}">
+    {% else %}
+      <div class="employee-photo-placeholder employee-photo-large">{{ (emp.full_name[:1] or '?')|upper }}</div>
+    {% endif %}
+    <label>Foto do colaborador
+      <input type="file" name="profile_photo" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+      <small>JPG, JPEG, PNG ou WEBP. Ao enviar outra foto, a anterior será substituída.</small>
+    </label>
+  </div>
+
+  <label>Nome completo<input name="full_name" value="{{ emp.full_name }}" required></label>
+  <label>CPF<input name="cpf" value="{{ emp.cpf }}" required></label>
+  <label>RG<input name="rg" value="{{ emp.rg or '' }}"></label>
+  <label>Nascimento<input type="date" name="birth_date" value="{{ emp.birth_date.strftime('%Y-%m-%d') if emp.birth_date else '' }}"></label>
+  <label>Telefone<input name="phone" value="{{ emp.phone or '' }}"></label>
+  <label>Endereço<input name="address" value="{{ emp.address or '' }}"></label>
+  <label>E-mail de acesso<input type="email" name="email" value="{{ emp.user.email }}" required></label>
+  <label>Matrícula<input name="registration" value="{{ emp.registration or '' }}"></label>
+  <label>Cargo<input name="job_title" value="{{ emp.job_title }}" required></label>
+  <label>Setor<input name="department" value="{{ emp.department }}" required></label>
+  <label>Projeto/Unidade<input name="project" value="{{ emp.project or '' }}" required></label>
+  <label>Admissão<input type="date" name="admission_date" value="{{ emp.admission_date.strftime('%Y-%m-%d') if emp.admission_date else '' }}" required></label>
+  <label>Contrato<input name="contract_type" value="{{ emp.contract_type or 'CLT' }}"></label>
+  <label>Carga semanal<input type="number" step="0.5" min="0" name="weekly_hours" value="{{ emp.weekly_hours or 44 }}"></label>
+  <label>Entrada padrão<input type="time" name="standard_start" value="{{ emp.standard_start.strftime('%H:%M') if emp.standard_start else '' }}"></label>
+  <label>Saída padrão<input type="time" name="standard_end" value="{{ emp.standard_end.strftime('%H:%M') if emp.standard_end else '' }}"></label>
+
+  <label>Perfil
+    <select name="role">
+      <option value="employee" {% if emp.user.role=='employee' %}selected{% endif %}>Colaborador</option>
+      <option value="manager" {% if emp.user.role=='manager' %}selected{% endif %}>Responsável</option>
+      <option value="admin" {% if emp.user.role=='admin' %}selected{% endif %}>RH/Administrador</option>
+    </select>
+  </label>
+
+  <label>Responsável
+    <select name="manager_id">
+      <option value="">Sem responsável</option>
+      {% for m in managers %}
+      <option value="{{ m.id }}" {% if emp.manager_id==m.id %}selected{% endif %}>{{ m.full_name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>Situação
+    <select name="is_active">
+      <option value="1" {% if emp.is_active %}selected{% endif %}>Ativo</option>
+      <option value="0" {% if not emp.is_active %}selected{% endif %}>Inativo</option>
+    </select>
+  </label>
+
+  <div class="full">
+    <button type="submit">Salvar alterações</button>
+  </div>
+</form>
+{% endblock %}

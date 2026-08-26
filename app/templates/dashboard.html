@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% block content %}
+
+{% if current_user.role in ['admin','manager'] %}
+<div class="rh-home">
+  <div class="heading">
+    <div><h1>Olá, {{ current_user.employee.full_name if current_user.employee else 'Administrador' }}</h1><p>{{ today.strftime('%d/%m/%Y') }}</p></div>
+  </div>
+  <div class="cards">
+    <div class="card"><span>Colaboradores</span><strong>{{data.employees}}</strong></div>
+    <div class="card"><span>Atestados no mês</span><strong>{{data.certificates_month}}</strong></div>
+    <div class="card"><span>Solicitações pendentes</span><strong>{{data.pending}}</strong></div>
+    <div class="card bank-highlight"><span>Banco de horas</span><strong>{{ data.bank_minutes|minutes_hhmm }}</strong></div>
+  </div>
+
+  {% if current_user.role=='admin' and data.incomplete_today %}
+    <div class="alert warning"><strong>Atenção:</strong> {{data.incomplete_today}} colaborador(es) possuem marcações incompletas hoje.</div>
+  {% endif %}
+
+  <div class="panel">
+    <div class="heading"><div><h2>Ações rápidas</h2><p class="muted">Acessos principais do RH.</p></div></div>
+    <div class="actions">
+      <a class="btn" href="{{url_for('rh.approvals')}}">Ver aprovações{% if data.pending %} ({{data.pending}}){% endif %}</a>
+      <a class="btn secondary" href="{{url_for('rh.time_records')}}">Registros de ponto</a>
+      <a class="btn secondary" href="{{url_for('rh.employees')}}">Colaboradores</a>
+      {% if current_user.role=='admin' %}
+      <a class="btn secondary" href="{{url_for('rh.time_closing')}}">Fechamento mensal</a>
+      <a class="btn secondary" href="{{url_for('rh.bank_statement')}}">Extrato banco</a>
+      <a class="btn secondary" href="{{url_for('rh.certificates_manage')}}">Atestados recebidos{% if data.certificates_received %} ({{data.certificates_received}}){% endif %}</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="heading"><div><h2>Solicitações aguardando aprovação</h2><p class="muted">Banco de horas, horas extras e ajustes.</p></div><a href="{{url_for('rh.approvals')}}">Ver todas</a></div>
+    <div class="table-wrap"><table><tr><th>Colaborador</th><th>Tipo</th><th>Data</th><th>Duração</th></tr>
+      {% for r in data.pending_requests %}<tr><td>{{r.employee.full_name}}</td><td>{{r.request_type.replace('_',' ')|title}}</td><td>{{r.request_date.strftime('%d/%m/%Y')}}</td><td>{{r.minutes//60}}h {{r.minutes%60}}m</td></tr>{% else %}<tr><td colspan="4">Nenhuma solicitação pendente.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+
+  {% if current_user.role=='admin' %}
+  <div class="panel">
+    <div class="heading"><div><h2>Atestados recebidos recentemente</h2></div><a href="{{url_for('rh.certificates_manage')}}">Ver todos</a></div>
+    <div class="table-wrap"><table><tr><th>Colaborador</th><th>Afastamento</th><th>Dias</th><th>Status</th></tr>
+      {% for c in data.recent_certificates %}<tr><td>{{c.employee.full_name}}</td><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td><span class="badge {{c.status}}">{{c.status|title}}</span></td></tr>{% else %}<tr><td colspan="4">Nenhum atestado recebido.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  {% endif %}
+</div>
+{% else %}
+
+<div class="employee-home">
+  <section class="welcome-banner">
+    <div class="welcome-copy">
+      <h1>Olá, {{ current_user.employee.full_name.split(' ')[0] if current_user.employee else 'Colaborador' }}! <span aria-hidden="true">👋</span></h1>
+      <p>Seja bem-vindo(a) ao Portal RH.<br>Aqui você acompanha suas informações,<br>solicitações e registros.</p>
+    </div>
+    <div class="welcome-dots" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <img class="welcome-children" src="{{url_for('static',filename='img/dashboard-children.png')}}" alt="">
+    <div class="welcome-blob" aria-hidden="true"></div>
+  </section>
+
+  <div class="home-two-columns">
+    <div class="home-main-column">
+      <section class="home-section">
+        <h2>Resumo do seu dia</h2>
+        <div class="daily-summary-grid">
+          <article class="summary-box">
+            <span class="summary-icon summary-icon-green">◷</span>
+            <div><small>Último ponto</small><strong>{% if data.last_punch %}{{data.last_punch.punched_at.strftime('%H:%M')}}{% else %}—{% endif %}</strong><p>{% if data.last_punch %}Hoje, {{today.strftime('%d/%m/%Y')}}{% else %}Nenhum registro hoje{% endif %}</p></div>
+          </article>
+          <article class="summary-box">
+            <span class="summary-icon summary-icon-blue">▣</span>
+            <div><small>Jornada do dia</small><strong>{{data.worked_today_minutes|minutes_hhmm}}</strong><p>Trabalhadas</p>{% if data.worked_today_minutes and data.expected_today_minutes and data.worked_today_minutes >= data.expected_today_minutes %}<span class="status-pill">Dentro da jornada</span>{% endif %}</div>
+          </article>
+          <article class="summary-box">
+            <span class="summary-icon summary-icon-gold">◴</span>
+            <div><small>Saldo do dia</small><strong>{{data.day_balance_minutes|minutes_hhmm}}</strong><p class="{% if data.day_balance_minutes >= 0 %}positive{% else %}negative{% endif %}">{% if data.day_balance_minutes >= 0 %}Saldo positivo{% else %}Saldo negativo{% endif %}</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="home-notices">
+        <h2>Avisos e pendências</h2>
+
+        {% for c in data.closed_unacknowledged %}
+        <div class="notice-row">
+          <span class="notice-icon notice-gold">▣</span>
+          <div class="notice-copy">
+            <strong>Seu espelho de ponto de {{'%02d'|format(c.month)}}/{{c.year}} está disponível</strong>
+            <small>Acesse, confira o relatório e registre sua ciência.</small>
+          </div>
+          <a class="notice-action" target="_blank" rel="noopener" href="{{url_for('rh.employee_time_report_pdf',employee_id=current_user.employee.id,month='%04d-%02d'|format(c.year,c.month))}}">Visualizar</a>
+        </div>
+        {% endfor %}
+
+        {% if data.pending_certificate_count %}
+        <a class="notice-row notice-link" href="{{url_for('rh.certificates')}}">
+          <span class="notice-icon notice-blue">▧</span>
+          <div class="notice-copy">
+            <strong>Você possui {{data.pending_certificate_count}} atestado(s) pendente(s) de conferência</strong>
+            <small>{% if data.latest_pending_certificate %}Enviado em {{data.latest_pending_certificate.uploaded_at.strftime('%d/%m/%Y')}}{% endif %}</small>
+          </div>
+          <span class="notice-chevron">›</span>
+        </a>
+        {% endif %}
+
+        {% if data.pending %}
+        <a class="notice-row notice-link" href="{{url_for('rh.requests_page')}}">
+          <span class="notice-icon notice-green">◴</span>
+          <div class="notice-copy">
+            <strong>Você possui {{data.pending}} solicitação(ões) aguardando aprovação</strong>
+            <small>Acompanhe o andamento das suas solicitações.</small>
+          </div>
+          <span class="notice-chevron">›</span>
+        </a>
+        {% endif %}
+
+        {% if not data.closed_unacknowledged and not data.pending_certificate_count and not data.pending %}
+        <div class="notice-row">
+          <span class="notice-icon notice-green">✓</span>
+          <div class="notice-copy"><strong>Nenhuma pendência no momento</strong><small>Seu portal está em dia.</small></div>
+        </div>
+        {% endif %}
+      </section>
+    </div>
+
+    <aside class="home-side-column">
+      <section class="side-widget">
+        <div class="widget-title"><span class="widget-icon">▣</span><h2>Férias programadas</h2></div>
+        {% if data.next_vacation %}
+        <div class="vacation-widget-body">
+          <small>Início previsto</small><strong>{{data.next_vacation.planned_start.strftime('%d/%m/%Y')}}</strong>
+          <small>Retorno previsto</small><strong>{{data.next_vacation.planned_return.strftime('%d/%m/%Y') if data.next_vacation.planned_return else '—'}}</strong>
+          <small>Dias programados</small><strong>{{data.next_vacation.days}} dias</strong>
+          <a class="vacation-detail-btn" href="{{url_for('rh.employee_detail',employee_id=current_user.employee.id)}}#ferias">Ver detalhes</a>
+        </div>
+        {% else %}
+        <div class="empty-widget">Nenhuma férias programada.</div>
+        {% endif %}
+      </section>
+
+      <section class="side-widget bank-widget">
+        <div class="widget-title"><span class="widget-icon">◷</span><h2>Extrato do banco de horas</h2></div>
+        <div class="bank-widget-row"><span>Saldo anterior</span><strong>{{data.bank_previous_balance|minutes_hhmm}}</strong></div>
+        <div class="bank-widget-row"><span>Créditos no mês</span><strong class="positive">{{data.bank_credits_month|minutes_hhmm}}</strong></div>
+        <div class="bank-widget-row"><span>Débitos no mês</span><strong class="negative">-{{data.bank_debits_month|minutes_hhmm}}</strong></div>
+        <div class="bank-widget-row bank-current"><span>Saldo atual</span><strong class="{% if data.bank_minutes >= 0 %}positive{% else %}negative{% endif %}">{{data.bank_minutes|minutes_hhmm}}</strong></div>
+      </section>
+    </aside>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

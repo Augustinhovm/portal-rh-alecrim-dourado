@@ -1,0 +1,15 @@
+PORTAL RH - ATUALIZACAO V6
+
+NOVO:
+- Na ficha individual do colaborador, o RH pode escolher uma competencia (mes/ano) e baixar o espelho mensal de registros de ponto em PDF.
+- O PDF traz dados do colaborador, todos os dias do mes, Entrada, Saida de intervalo, Retorno, Saida e observacoes sobre marcacoes extras/ajustes administrativos.
+- O download do PDF fica registrado na Auditoria.
+
+COMO ATUALIZAR:
+1. Feche o servidor com CTRL+C.
+2. Preserve as pastas instance e app\uploads da instalacao atual.
+3. Substitua os arquivos do projeto pelos da V6.
+4. Execute .\atualizar_v6_windows.bat para instalar a nova dependencia reportlab.
+5. Execute .\iniciar_windows.bat.
+6. Entre como RH > Colaboradores > abra um colaborador > Controle individual de ponto.
+7. Em Espelho mensal de ponto em PDF, escolha o mes e clique em Baixar PDF mensal.

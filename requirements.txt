@@ -1,0 +1,16 @@
+Flask==3.1.0
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Werkzeug==3.1.3
+python-dotenv==1.0.1
+openpyxl==3.1.5
+tzdata>=2026.1
+
+reportlab==4.4.9
+
+pypdf>=5.0
+Pillow>=10.0
+
+gunicorn==23.0.0
+waitress==3.0.2
+psycopg[binary]>=3.2,<4

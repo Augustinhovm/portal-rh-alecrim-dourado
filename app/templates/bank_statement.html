@@ -1,0 +1,6 @@
+{% extends 'base.html' %}{% block content %}
+<div class="heading"><div><h1>Extrato de banco de horas</h1><p class="muted">Rastreabilidade de créditos e débitos do colaborador.</p></div></div>
+<div class="panel"><form method="get" class="form-grid"><label>Colaborador<select name="employee_id"><option value="">Selecione</option>{% for e in employees %}<option value="{{e.id}}" {% if emp and e.id==emp.id %}selected{% endif %}>{{e.full_name}}</option>{% endfor %}</select></label><div><button>Consultar</button></div></form></div>
+{% if emp %}<div class="panel"><h2>{{emp.full_name}}</h2><div class="table-wrap"><table><tr><th>Data</th><th>Movimento</th><th>Origem</th><th>Crédito</th><th>Débito</th><th>Saldo acumulado do extrato</th></tr>
+{% for x in movements %}<tr><td>{{x.date.strftime('%d/%m/%Y')}}</td><td>{{x.label}}</td><td>{{x.source}}</td><td>{% if x.minutes>0 %}{{x.minutes|minutes_hhmm}}{% else %}—{% endif %}</td><td>{% if x.minutes<0 %}{{(-x.minutes)|minutes_hhmm}}{% else %}—{% endif %}</td><td>{{x.running|minutes_hhmm}}</td></tr>{% else %}<tr><td colspan="6">Sem movimentações.</td></tr>{% endfor %}
+</table></div></div>{% endif %}{% endblock %}

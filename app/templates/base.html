@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}Portal RH{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="{% if current_user.is_authenticated %}portal-authenticated{% else %}portal-login{% endif %}">
+{% if current_user.is_authenticated %}
+<header class="topbar">
+  <div class="topbar-left">
+    <button type="button" class="menu-toggle" id="menuToggle" aria-label="Abrir menu" aria-controls="sidebar" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <span class="topbar-section-name">Portal RH</span>
+  </div>
+
+  <a class="topbar-centered-brand" href="{{url_for('main.dashboard')}}" aria-label="Início - Associação Alecrim Dourado">
+    <img src="{{ url_for('static', filename='img/alecrim-dourado-logo.png') }}" alt="Associação Alecrim Dourado">
+  </a>
+  <div class="topbar-right">
+    {% if current_user.employee %}
+      <a class="top-profile-avatar" href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}" title="{{ current_user.employee.full_name }}">
+        {% if current_user.employee.profile_photo %}
+          <img src="{{url_for('rh.employee_photo', employee_id=current_user.employee.id)}}" alt="Foto de {{ current_user.employee.full_name }}">
+        {% else %}
+          <span>{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
+        {% endif %}
+      </a>
+      <div class="topbar-user">
+        <strong>{{ current_user.employee.full_name }}</strong>
+        <small>
+          {% if current_user.role=='admin' %}RH / Administrador
+          {% elif current_user.role=='manager' %}Responsável de área
+          {% else %}Colaborador{% endif %}
+        </small>
+      </div>
+    {% else %}
+      <div class="topbar-user"><strong>Administrador</strong><small>Portal RH</small></div>
+    {% endif %}
+  </div>
+</header>
+
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<aside class="sidebar" id="sidebar" aria-hidden="true">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img src="{{ url_for('static', filename='img/alecrim-dourado-logo.png') }}" alt="Associação Alecrim Dourado">
+      <small>Portal RH</small>
+    </div>
+    <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Fechar menu">×</button>
+  </div>
+
+  <nav class="sidebar-nav">
+    <section class="menu-group">
+      <h3>Principal</h3>
+      <a href="{{url_for('main.dashboard')}}">Início</a>
+      {% if current_user.employee %}
+        <a href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}">Meu perfil</a>
+      {% endif %}
+    </section>
+
+    <section class="menu-group">
+      <h3>Ponto e Jornada</h3>
+      <a href="{{url_for('rh.clock')}}">Registrar ponto</a>
+      <a href="{{url_for('rh.requests_page')}}">Solicitações</a>
+      {% if current_user.role in ['admin','manager'] %}
+        <a href="{{url_for('rh.time_records')}}">Registros de ponto</a>
+        <a href="{{url_for('rh.approvals')}}">Aprovações</a>
+      {% endif %}
+      {% if current_user.role=='admin' %}
+        <a href="{{url_for('rh.time_closing')}}">Fechamento mensal</a>
+      {% endif %}
+    </section>
+
+    <section class="menu-group">
+      <h3>Banco de Horas</h3>
+      <a href="{{url_for('rh.requests_page')}}">Solicitar banco / hora extra</a>
+      {% if current_user.role=='admin' %}
+        <a href="{{url_for('rh.bank_statement')}}">Extrato de banco</a>
+      {% endif %}
+    </section>
+
+    {% if current_user.employee %}
+    <section class="menu-group">
+      <h3>Férias</h3>
+      <a href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}#ferias">Minhas férias</a>
+    </section>
+    {% endif %}
+
+    <section class="menu-group">
+      <h3>Saúde e Atestados</h3>
+      <a href="{{url_for('rh.certificates')}}">Meus atestados</a>
+      {% if current_user.role=='admin' %}
+        <a href="{{url_for('rh.certificates_manage')}}">Atestados recebidos</a>
+      {% endif %}
+    </section>
+
+    {% if current_user.role in ['admin','manager'] %}
+    <section class="menu-group">
+      <h3>Colaboradores</h3>
+      <a href="{{url_for('rh.employees')}}">Lista de colaboradores</a>
+      {% if current_user.role=='admin' %}
+        <a href="{{url_for('rh.employee_new')}}">Cadastrar colaborador</a>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if current_user.role=='admin' %}
+    <section class="menu-group">
+      <h3>Gestão RH</h3>
+      <a href="{{url_for('rh.time_closing')}}">Fechamento de ponto</a>
+      <a href="{{url_for('rh.bank_statement')}}">Extrato de banco de horas</a>
+      <a href="{{url_for('rh.certificates_manage')}}">Gestão de atestados</a>
+    </section>
+
+    <section class="menu-group">
+      <h3>Administração</h3>
+      <a href="{{url_for('rh.audit')}}">Auditoria</a>
+    </section>
+    {% endif %}
+  </nav>
+
+  <div class="sidebar-footer">
+    <form action="{{url_for('auth.logout')}}" method="post">
+      <button type="submit" class="sidebar-logout">Sair do Portal</button>
+    </form>
+  </div>
+</aside>
+{% endif %}
+
+<main class="container">
+  {% with msgs=get_flashed_messages(with_categories=true) %}
+    {% for cat,msg in msgs %}<div class="alert {{cat}}">{{msg}}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+{% if current_user.is_authenticated %}
+<script>
+(function () {
+  const body = document.body;
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const toggle = document.getElementById('menuToggle');
+  const close = document.getElementById('sidebarClose');
+
+  function openMenu() {
+    body.classList.add('sidebar-open');
+    sidebar.setAttribute('aria-hidden', 'false');
+    toggle.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeMenu() {
+    body.classList.remove('sidebar-open');
+    sidebar.setAttribute('aria-hidden', 'true');
+    toggle.setAttribute('aria-expanded', 'false');
+  }
+
+  toggle.addEventListener('click', function () {
+    if (body.classList.contains('sidebar-open')) closeMenu();
+    else openMenu();
+  });
+
+  close.addEventListener('click', closeMenu);
+  overlay.addEventListener('click', closeMenu);
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') closeMenu();
+  });
+
+  sidebar.querySelectorAll('a').forEach(function (link) {
+    link.addEventListener('click', closeMenu);
+  });
+})();
+</script>
+{% endif %}
+
+<script>
+(function () {
+  const token = {{ csrf_token()|tojson }};
+  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (form) {
+    if (form.querySelector('input[name="_csrf_token"]')) return;
+    const field = document.createElement('input');
+    field.type = 'hidden';
+    field.name = '_csrf_token';
+    field.value = token;
+    form.appendChild(field);
+  });
+})();
+</script>
+
+</body>
+</html>

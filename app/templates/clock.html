@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block content %}<div class="heading"><div><h1>Registro de ponto</h1><p>Registre entrada, intervalo, retorno e saída.</p></div></div><div class="panel center"><div class="clock-big" id="clock">--:--:--</div><form method="post" class="point-pin-form" autocomplete="off">
+  <label for="point_pin" style="display:block;font-weight:700;margin:0 auto 8px;">Senha de ponto</label>
+  <input
+    id="point_pin"
+    type="password"
+    name="point_pin"
+    inputmode="numeric"
+    pattern="[0-9]{6}"
+    minlength="6"
+    maxlength="6"
+    autocomplete="off"
+    required
+    placeholder="••••••"
+    aria-label="Senha de ponto de 6 dígitos"
+    style="display:block;width:220px;max-width:90%;margin:0 auto 14px;text-align:center;font-size:1.5rem;letter-spacing:.5rem;padding:12px;border:1px solid #cbd5e1;border-radius:10px;"
+  >
+  <button class="punch" type="submit">Registrar ponto agora</button>
+</form><p class="muted">A sequência é identificada automaticamente pelo número de marcações do dia.</p></div><div class="panel"><h2>Marcações de hoje</h2><table><tr><th>Tipo</th><th>Horário</th><th>Origem</th></tr>{% for r in rows %}<tr><td>{{r.kind.replace('_',' ')|title}}</td><td>{{r.punched_at.strftime('%H:%M:%S')}}</td><td>{{r.source}}</td></tr>{% else %}<tr><td colspan="3">Nenhuma marcação hoje.</td></tr>{% endfor %}</table></div><script>setInterval(()=>document.getElementById('clock').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'}),500);</script>{% endblock %}

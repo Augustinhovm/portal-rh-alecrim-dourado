@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: portal-rh-alecrim-dourado
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --workers 2 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT wsgi:app
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MAX_UPLOAD_MB
+        value: 10
+      - key: SESSION_MINUTES
+        value: 480
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portal-rh-db
+          property: connectionString
+
+databases:
+  - name: portal-rh-db
+    databaseName: portal_rh
+    user: portal_rh

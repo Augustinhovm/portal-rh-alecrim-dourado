@@ -1,0 +1,294 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="employee-profile-header">
+  <div class="employee-profile-main">
+    {% if emp.profile_photo %}
+      <img class="employee-photo" src="{{ url_for('rh.employee_photo', employee_id=emp.id) }}" alt="Foto de {{ emp.full_name }}">
+    {% else %}
+      <div class="employee-photo-placeholder employee-photo">{{ (emp.full_name[:1] or '?')|upper }}</div>
+    {% endif %}
+    <div>
+      <h1>{{ emp.full_name }}</h1>
+      <p>{{ emp.job_title }} · {{ emp.project }} · {{ emp.department }}</p>
+    </div>
+  </div>
+  <div class="profile-header-actions">
+    <span class="badge bank-balance">Disponível {{ bank_summary.available|minutes_hhmm }}</span>
+    {% if current_user.role == 'admin' %}
+      <a class="btn secondary" href="{{ url_for('rh.employee_edit', employee_id=emp.id) }}">Editar cadastro</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card"><span>CPF</span><strong class="card-value-small">{{ emp.cpf }}</strong></div>
+  <div class="card"><span>Admissão</span><strong class="card-value-small">{{ emp.admission_date.strftime('%d/%m/%Y') }}</strong></div>
+  <div class="card"><span>Carga semanal</span><strong>{{ emp.weekly_hours }}h</strong></div>
+  <div class="card"><span>Saldo realizado</span><strong>{{ bank_summary.current|minutes_hhmm }}</strong></div>
+  <div class="card"><span>Horas programadas</span><strong>{{ bank_summary.scheduled|minutes_hhmm }}</strong></div>
+  <div class="card bank-highlight"><span>Saldo disponível</span><strong>{{ bank_summary.available|minutes_hhmm }}</strong></div>
+</div>
+
+
+{% if current_user.role == 'admin' %}
+<div class="panel" id="acesso">
+  <div class="section-heading">
+    <div>
+      <h2>Acesso ao Portal</h2>
+      <p class="muted">E-mail de acesso: <strong>{{ emp.user.email }}</strong></p>
+    </div>
+    {% if emp.user.must_change_password %}
+      <span class="badge pending">Troca de senha pendente</span>
+    {% else %}
+      <span class="badge approved">Senha pessoal definida</span>
+    {% endif %}
+  </div>
+  <div class="cards" style="margin-top:12px">
+    <div class="card"><span>Senha de ponto</span><strong class="card-value-small">{% if emp.point_pin_hash %}Configurada{% else %}Não configurada{% endif %}</strong></div>
+  </div>
+  <details class="admin-tool">
+    <summary>Definir/redefinir senha de ponto</summary>
+    <form method="post" action="{{ url_for('rh.employee_reset_point_pin', employee_id=emp.id) }}" class="form-grid compact-form">
+      <label class="full">Nova senha de ponto
+        <input type="password" name="point_pin" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="6 dígitos numéricos">
+      </label>
+      <p class="muted full">Essa senha é separada da senha de acesso e será exigida em todas as marcações feitas pelo colaborador.</p>
+      <div class="full"><button type="submit">Salvar senha de ponto</button></div>
+    </form>
+  </details>
+  <details class="admin-tool">
+    <summary>Gerar nova senha provisória</summary>
+    <form method="post" action="{{ url_for('rh.employee_reset_password', employee_id=emp.id) }}" class="form-grid compact-form">
+      <label class="full">Nova senha provisória
+        <input type="password" name="temporary_password" minlength="8" required placeholder="Mínimo de 8 caracteres">
+      </label>
+      <p class="muted full">Após essa redefinição, o colaborador será obrigado a criar outra senha pessoal no próximo acesso.</p>
+      <div class="full"><button type="submit">Redefinir senha provisória</button></div>
+    </form>
+  </details>
+</div>
+{% endif %}
+
+<div class="panel" id="banco-horas">
+  <div class="section-heading">
+    <div><h2>Controle de banco de horas</h2><p class="muted">Saldo individual, movimentações aprovadas e ajustes administrativos.</p></div>
+    <span class="bank-total">Realizado: <strong>{{ bank_summary.current|minutes_hhmm }}</strong> · Programado: <strong>{{ bank_summary.scheduled|minutes_hhmm }}</strong> · Disponível: <strong>{{ bank_summary.available|minutes_hhmm }}</strong></span>
+  </div>
+
+  {% if current_user.role == 'admin' %}
+  <details class="admin-tool" open>
+    <summary>Fazer ajuste manual no banco de horas</summary>
+    <form method="post" action="{{ url_for('rh.employee_bank_adjustment', employee_id=emp.id) }}" class="form-grid compact-form">
+      <label>Operação
+        <select name="operation" required><option value="credit">Crédito (+)</option><option value="debit">Débito (-)</option></select>
+      </label>
+      <label>Horas<input type="number" name="hours" min="0" value="0" required></label>
+      <label>Minutos<input type="number" name="minutes" min="0" max="59" value="0" required></label>
+      <label class="full">Justificativa<textarea name="reason" placeholder="Ex.: correção de saldo anterior, compensação autorizada..." required></textarea></label>
+      <div class="full"><button type="submit">Registrar ajuste</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  <h3>Movimentações administrativas</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Data</th><th>Movimento</th><th>Justificativa</th><th>Registrado por</th></tr>
+    {% for m in bank_adjustments %}
+    <tr><td>{{ m.created_at.strftime('%d/%m/%Y %H:%M') }}</td><td><strong class="{% if m.minutes >= 0 %}positive{% else %}negative{% endif %}">{{ m.minutes|minutes_hhmm }}</strong></td><td>{{ m.reason }}</td><td>{{ m.creator.email }}</td></tr>
+    {% else %}<tr><td colspan="4">Nenhum ajuste manual registrado.</td></tr>{% endfor %}
+  </table></div>
+
+  <h3>Solicitações que movimentam o banco</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Data</th><th>Tipo</th><th>Quantidade</th><th>Status</th><th>Decisão</th></tr>
+    {% for r in reqs if r.request_type in ['bank_use','overtime'] %}
+    <tr>
+      <td>{{ r.request_date.strftime('%d/%m/%Y') }}</td>
+      <td>{% if r.request_type=='bank_use' %}Utilização do banco{% else %}Hora extra{% endif %}</td>
+      <td>{% if r.request_type=='bank_use' %}{{ (-r.minutes)|minutes_hhmm }}{% else %}{{ r.minutes|minutes_hhmm }}{% endif %}</td>
+      <td><span class="badge {{ r.status }}">{{ {'pending':'Pendente','approved':'Aprovado','rejected':'Rejeitado'}.get(r.status,r.status) }}</span></td>
+      <td>{% if r.decided_at %}{{ r.decided_at.strftime('%d/%m/%Y %H:%M') }}{% else %}-{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="5">Nenhuma movimentação por solicitação.</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="panel" id="controle-ponto">
+  <div class="section-heading">
+    <div><h2>Controle individual de ponto</h2><p class="muted">O RH pode incluir marcações esquecidas, corrigir registros incorretos e remover duplicidades. Todas as ações ficam registradas na Auditoria.</p></div>
+  </div>
+
+  {% if current_user.role == 'admin' %}
+  <details class="admin-tool" open>
+    <summary>Incluir marcação esquecida</summary>
+    <form method="post" action="{{ url_for('rh.employee_time_clock_add', employee_id=emp.id) }}" class="form-grid compact-form">
+      <label>Data<input type="date" name="date" required></label>
+      <label>Horário<input type="time" name="time" step="1" required></label>
+      <label>Tipo<select name="kind" required><option value="entrada">Entrada</option><option value="saida_intervalo">Saída para intervalo</option><option value="retorno">Retorno do intervalo</option><option value="saida">Saída</option></select></label>
+      <label class="full">Justificativa<textarea name="reason" placeholder="Ex.: colaborador esqueceu de registrar a saída." required></textarea></label>
+      <div class="full"><button type="submit">Incluir marcação</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  {% if current_user.role == 'admin' %}
+  <div class="pdf-report-box">
+    <div>
+      <h3>Espelho mensal de ponto em PDF</h3>
+      <p class="muted">Escolha a competência para baixar os registros mensais deste colaborador.</p>
+    </div>
+    <form method="get" action="{{ url_for('rh.employee_time_report_pdf', employee_id=emp.id) }}" class="pdf-report-form">
+      <label>Competência
+        <input type="month" name="month" value="{{ current_month }}" required>
+      </label>
+      <button type="submit">Baixar PDF mensal</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <h3>Últimas marcações</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Data</th><th>Horário</th><th>Tipo</th><th>Origem</th>{% if current_user.role=='admin' %}<th>Ações do RH</th>{% endif %}</tr>
+    {% for r in clocks %}
+    <tr>
+      <td>{{ r.punched_at.strftime('%d/%m/%Y') }}</td><td>{{ r.punched_at.strftime('%H:%M:%S') }}</td><td>{{ r.kind.replace('_',' ')|title }}</td><td>{{ r.source }}</td>
+      {% if current_user.role=='admin' %}
+      <td class="admin-actions-cell">
+        <details class="row-action"><summary>Corrigir</summary>
+          <form method="post" action="{{ url_for('rh.time_clock_edit', clock_id=r.id) }}" class="mini-form">
+            <input type="date" name="date" value="{{ r.punched_at.strftime('%Y-%m-%d') }}" required>
+            <input type="time" name="time" step="1" value="{{ r.punched_at.strftime('%H:%M:%S') }}" required>
+            <select name="kind" required>
+              <option value="entrada" {% if r.kind=='entrada' %}selected{% endif %}>Entrada</option>
+              <option value="saida_intervalo" {% if r.kind=='saida_intervalo' %}selected{% endif %}>Saída intervalo</option>
+              <option value="retorno" {% if r.kind=='retorno' %}selected{% endif %}>Retorno</option>
+              <option value="saida" {% if r.kind=='saida' %}selected{% endif %}>Saída</option>
+            </select>
+            <input name="reason" placeholder="Justificativa obrigatória" required>
+            <button>Salvar correção</button>
+          </form>
+        </details>
+        <details class="row-action danger-detail"><summary>Remover duplicado</summary>
+          <form method="post" action="{{ url_for('rh.time_clock_delete', clock_id=r.id) }}" class="mini-form">
+            <input name="reason" placeholder="Motivo da exclusão" required>
+            <button class="danger-btn">Remover registro</button>
+          </form>
+        </details>
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}<tr><td colspan="5">Nenhuma marcação registrada.</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="panel"><h2>Outras solicitações recentes</h2><div class="table-wrap"><table><tr><th>Data</th><th>Tipo</th><th>Minutos</th><th>Status</th></tr>{% for r in reqs %}<tr><td>{{r.request_date.strftime('%d/%m/%Y')}}</td><td>{{r.request_type.replace('_',' ')|title}}</td><td>{{r.minutes}}</td><td><span class="badge {{r.status}}">{{r.status}}</span></td></tr>{% else %}<tr><td colspan="4">Nenhuma solicitação.</td></tr>{% endfor %}</table></div></div>
+
+<div class="panel"><h2>Atestados</h2><div class="table-wrap"><table><tr><th>Início</th><th>Dias</th><th>Status</th>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<th>Arquivo</th>{% endif %}</tr>{% for c in certs %}<tr><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td>{{c.status}}</td>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<td><a href="{{url_for('rh.file_download',kind='certificate',item_id=c.id)}}">Abrir</a></td>{% endif %}</tr>{% else %}<tr><td colspan="4">Nenhum atestado.</td></tr>{% endfor %}</table></div></div>
+
+
+<div class="panel" id="ferias">
+  <div class="heading">
+    <div>
+      <h2>Férias</h2>
+      <p class="muted">Períodos aquisitivos, saldo de dias e programação futura.</p>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><span>Dias adquiridos</span><strong>{{ vacation_summary.earned }}</strong></div>
+    <div class="card"><span>Dias já utilizados</span><strong>{{ vacation_summary.used }}</strong></div>
+    <div class="card bank-highlight"><span>Dias disponíveis</span><strong>{{ vacation_summary.available }}</strong></div>
+    <div class="card"><span>Dias programados</span><strong>{{ vacation_summary.scheduled_days }}</strong></div>
+    <div class="card"><span>Saldo após programação</span><strong>{{ vacation_summary.available_after_schedule }}</strong></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <tr><th>Informação</th><th>Período / Data</th></tr>
+      <tr>
+        <td>Período aquisitivo em andamento</td>
+        <td>{{ vacation_summary.current_acquisition_start.strftime('%d/%m/%Y') }} a {{ vacation_summary.current_acquisition_end.strftime('%d/%m/%Y') }}</td>
+      </tr>
+      <tr>
+        <td>Próximo direito estimado</td>
+        <td>{{ vacation_summary.next_entitlement_date.strftime('%d/%m/%Y') }}</td>
+      </tr>
+      {% if vacation_summary.last_acquisition_start %}
+      <tr>
+        <td>Último período aquisitivo concluído</td>
+        <td>{{ vacation_summary.last_acquisition_start.strftime('%d/%m/%Y') }} a {{ vacation_summary.last_acquisition_end.strftime('%d/%m/%Y') }}</td>
+      </tr>
+      <tr>
+        <td>Período concessivo correspondente</td>
+        <td>{{ vacation_summary.concession_start.strftime('%d/%m/%Y') }} a {{ vacation_summary.concession_end.strftime('%d/%m/%Y') }}</td>
+      </tr>
+      {% endif %}
+    </table>
+  </div>
+
+  <p class="muted">Cálculo operacional estimado com base na data de admissão e nos períodos registrados no Portal RH.</p>
+
+  {% if current_user.role == 'admin' %}
+  <details class="admin-tool" open>
+    <summary>Provisionar / programar férias futuras</summary>
+    <form method="post" action="{{url_for('rh.employee_vacation_schedule_add',employee_id=emp.id)}}" class="form-grid compact-form">
+      <label>Data prevista de início<input type="date" name="planned_start" required></label>
+      <label>Data prevista de retorno<input type="date" name="planned_return"></label>
+      <label>Dias previstos<input type="number" name="days" min="1" max="30" value="30" required></label>
+      <label class="full">Observação<input name="note" placeholder="Ex.: previsão para organização da escala"></label>
+      <div class="full"><button>Salvar previsão de férias</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  <h3>Férias programadas</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Início previsto</th><th>Retorno previsto</th><th>Dias</th><th>Status</th><th>Observação</th>{% if current_user.role=='admin' %}<th>Ações RH</th>{% endif %}</tr>
+    {% for v in vacation_schedules %}
+    <tr>
+      <td>{{v.planned_start.strftime('%d/%m/%Y')}}</td>
+      <td>{{v.planned_return.strftime('%d/%m/%Y') if v.planned_return else '—'}}</td>
+      <td>{{v.days}}</td>
+      <td>
+        {% if v.status=='planned' %}<span class="badge pending">Programada</span>
+        {% elif v.status=='completed' %}<span class="badge approved">Realizada</span>
+        {% else %}<span class="badge">Cancelada</span>{% endif %}
+      </td>
+      <td>{{v.note or '—'}}</td>
+      {% if current_user.role=='admin' %}
+      <td>
+        {% if v.status=='planned' %}
+        <div class="actions">
+          <form method="post" action="{{url_for('rh.vacation_schedule_complete',schedule_id=v.id)}}"><button>Marcar como realizada</button></form>
+          <form method="post" action="{{url_for('rh.vacation_schedule_cancel',schedule_id=v.id)}}"><button class="secondary">Cancelar previsão</button></form>
+        </div>
+        {% else %}—{% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}<tr><td colspan="6">Nenhuma férias programada.</td></tr>{% endfor %}
+  </table></div>
+
+  {% if current_user.role == 'admin' %}
+  <details class="admin-tool">
+    <summary>Registrar férias já realizadas sem programação prévia</summary>
+    <form method="post" action="{{url_for('rh.employee_vacation_add',employee_id=emp.id)}}" class="form-grid compact-form">
+      <label>Início<input type="date" name="start_date" required></label>
+      <label>Dias<input type="number" name="days" min="1" max="30" value="30" required></label>
+      <label class="full">Observação<input name="note" placeholder="Ex.: período efetivamente gozado"></label>
+      <div class="full"><button>Registrar férias realizadas</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  <h3>Histórico de férias realizadas</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Início</th><th>Dias</th><th>Observação</th></tr>
+    {% for v in vacations %}
+    <tr><td>{{v.start_date.strftime('%d/%m/%Y')}}</td><td>{{v.days}}</td><td>{{v.note or '—'}}</td></tr>
+    {% else %}<tr><td colspan="3">Nenhum período de férias realizado registrado.</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="panel"><h2>Documentos</h2>{% if current_user.role=='admin' %}<form method="post" enctype="multipart/form-data" action="{{url_for('rh.document_upload',employee_id=emp.id)}}" class="inline-form"><input name="title" placeholder="Título" required><input name="category" placeholder="Categoria" required><input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required><button>Anexar</button></form>{% endif %}<div class="table-wrap"><table><tr><th>Título</th><th>Categoria</th><th>Data</th><th>Arquivo</th></tr>{% for d in docs %}<tr><td>{{d.title}}</td><td>{{d.category}}</td><td>{{d.uploaded_at.strftime('%d/%m/%Y')}}</td><td><a href="{{url_for('rh.file_download',kind='document',item_id=d.id)}}">Abrir</a></td></tr>{% else %}<tr><td colspan="4">Nenhum documento.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}

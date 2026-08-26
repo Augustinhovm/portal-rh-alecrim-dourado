@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="heading"><div><h1>Registros de ponto</h1><p>Consulta das marcações dos colaboradores.</p></div><a class="btn secondary" href="{{url_for('rh.report_time')}}">Exportar XLSX</a></div>
+<div class="panel">
+<form method="get" class="inline-form">
+<label>Colaborador<select name="employee_id"><option value="">Todos</option>{% for e in employees %}<option value="{{e.id}}" {% if selected_employee==e.id %}selected{% endif %}>{{e.full_name}}</option>{% endfor %}</select></label>
+<label>De<input type="date" name="start_date" value="{{start_date}}"></label>
+<label>Até<input type="date" name="end_date" value="{{end_date}}"></label>
+<div style="align-self:end"><button>Filtrar</button></div>
+</form>
+<div class="table-wrap"><table><tr><th>Colaborador</th><th>Projeto</th><th>Data</th><th>Hora</th><th>Tipo</th><th>Origem</th><th>IP</th></tr>
+{% for r in rows %}<tr><td>{{r.employee.full_name}}</td><td>{{r.employee.project}}</td><td>{{r.punched_at.strftime('%d/%m/%Y')}}</td><td>{{r.punched_at.strftime('%H:%M:%S')}}</td><td>{{r.kind.replace('_',' ')|title}}</td><td>{{r.source}}</td><td>{{r.ip_address or '-'}}</td></tr>{% else %}<tr><td colspan="7">Nenhum registro encontrado.</td></tr>{% endfor %}</table></div>
+</div>
+{% endblock %}

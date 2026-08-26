@@ -1,0 +1,8 @@
+PORTAL RH - ATUALIZAÇÃO V6.4
+
+- Saldo individual do banco de horas destacado no painel inicial do colaborador.
+- Novo atalho "Meu perfil" no menu do colaborador.
+- Perfil individual permite consultar saldo, movimentações e solicitações sem permissão de ajuste.
+- Tela de solicitações também exibe o saldo atual antes de novo pedido.
+
+Não há alteração no banco de dados nem dependências novas.
