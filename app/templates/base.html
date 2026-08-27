@@ -91,6 +91,15 @@
     {% endif %}
 
     <section class="menu-group">
+      <h3>Holerites</h3>
+      {% if current_user.role=='admin' %}
+        <a href="{{url_for('rh.payslips_manage')}}">Gestão de holerites</a>
+      {% elif current_user.employee %}
+        <a href="{{url_for('rh.payslips')}}">Meus holerites</a>
+      {% endif %}
+    </section>
+
+    <section class="menu-group">
       <h3>Saúde e Atestados</h3>
       <a href="{{url_for('rh.certificates')}}">Meus atestados</a>
       {% if current_user.role=='admin' %}

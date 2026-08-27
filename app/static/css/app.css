@@ -1942,3 +1942,35 @@ body.portal-login .auth-card {
     padding: 30px 18px 42px;
   }
 }
+
+
+/* =========================================================
+   V8.1 - Holerites
+   ========================================================= */
+.payslip-name-rule {
+  margin: 14px 0 20px;
+  padding: 15px 17px;
+  border-left: 5px solid var(--aad-yellow);
+  border-radius: 0 12px 12px 0;
+  background: var(--aad-yellow-pale);
+}
+.payslip-name-rule p { margin: 5px 0 0; }
+.payslip-name-rule code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255,255,255,.8);
+  color: var(--aad-charcoal-deep);
+}
+.payslip-list-panel .btn.secondary {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+}
+.payslip-security-note {
+  border-left: 5px solid var(--aad-yellow);
+}
+.payslip-security-note p { margin-bottom: 0; }
+
+@media (max-width: 760px) {
+  .payslip-name-rule { padding: 13px 14px; }
+}

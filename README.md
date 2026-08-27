@@ -190,3 +190,7 @@ Corrige filtros de data que comparavam `DATE` com strings ISO, comportamento tol
 
 ## V8.0.2 — Login em tela cheia
 Corrige a página de autenticação para ocupar 100% da largura e altura da viewport, sem margens ou faixas externas. Alertas ficam sobrepostos e não deslocam o layout. O comportamento responsivo para tablet e celular foi preservado.
+
+
+## V8.1 — Holerites mensais
+O RH pode selecionar uma competência e enviar vários holerites em PDF de uma vez. O Portal associa automaticamente cada PDF ao colaborador quando o nome completo cadastrado aparece no nome do arquivo, ignorando acentos, caixa, espaços e hífens. Arquivos não associados podem ser enviados manualmente. Cada colaborador visualiza somente os próprios holerites. O sistema registra quando o documento foi visualizado e substitui automaticamente um holerite reenviado para a mesma competência.

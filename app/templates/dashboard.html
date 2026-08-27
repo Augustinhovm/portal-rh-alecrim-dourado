@@ -96,6 +96,17 @@
         </div>
         {% endfor %}
 
+        {% if data.latest_unread_payslip %}
+        <a class="notice-row notice-link" href="{{url_for('rh.payslips')}}">
+          <span class="notice-icon notice-gold">R$</span>
+          <div class="notice-copy">
+            <strong>Seu holerite de {{'%02d'|format(data.latest_unread_payslip.month)}}/{{data.latest_unread_payslip.year}} está disponível</strong>
+            <small>Abra o documento para consultar seu holerite mensal.</small>
+          </div>
+          <span class="notice-chevron">›</span>
+        </a>
+        {% endif %}
+
         {% if data.pending_certificate_count %}
         <a class="notice-row notice-link" href="{{url_for('rh.certificates')}}">
           <span class="notice-icon notice-blue">▧</span>
@@ -118,7 +129,7 @@
         </a>
         {% endif %}
 
-        {% if not data.closed_unacknowledged and not data.pending_certificate_count and not data.pending %}
+        {% if not data.closed_unacknowledged and not data.latest_unread_payslip and not data.pending_certificate_count and not data.pending %}
         <div class="notice-row">
           <span class="notice-icon notice-green">✓</span>
           <div class="notice-copy"><strong>Nenhuma pendência no momento</strong><small>Seu portal está em dia.</small></div>

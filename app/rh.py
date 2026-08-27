@@ -1,4 +1,4 @@
-import os, uuid
+import os, uuid, re, unicodedata
 from io import BytesIO
 from datetime import datetime, date, timedelta
 import calendar
@@ -16,7 +16,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, TimeClock, MedicalCertificate, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, TimeClock, MedicalCertificate, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action
 from .timezone import now_local, today_local
 
@@ -26,6 +26,103 @@ ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp"}
 
 
 
+
+
+def _normalize_person_name(value):
+    value = unicodedata.normalize("NFKD", value or "")
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    value = value.lower()
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return " ".join(value.split())
+
+
+def _match_employee_from_filename(filename, employees):
+    stem = os.path.splitext(filename or "")[0]
+    normalized_file = _normalize_person_name(stem)
+    file_tokens = set(normalized_file.split())
+    candidates = []
+
+    for emp in employees:
+        normalized_name = _normalize_person_name(emp.full_name)
+        name_tokens = [x for x in normalized_name.split() if x]
+        if not name_tokens:
+            continue
+        # Associação por nome completo: todos os componentes do nome cadastrado
+        # precisam estar presentes no nome do arquivo.
+        if all(token in file_tokens for token in name_tokens):
+            candidates.append((len(name_tokens), len(normalized_name), emp))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    best = candidates[0]
+    # Se houver dois candidatos com a mesma força, evita associação arriscada.
+    if len(candidates) > 1 and candidates[1][0:2] == best[0:2]:
+        return None
+    return best[2]
+
+
+def _parse_competence(value):
+    try:
+        year, month = map(int, (value or "").split("-"))
+        if year < 2000 or month < 1 or month > 12:
+            raise ValueError
+        return year, month
+    except Exception:
+        raise ValueError("Informe uma competência válida no formato mês/ano.")
+
+
+def _save_payslip_file(file):
+    if not file or not file.filename:
+        raise ValueError("Selecione um arquivo de holerite.")
+    filename = secure_filename(file.filename)
+    if "." not in filename or filename.rsplit(".", 1)[1].lower() != "pdf":
+        raise ValueError("Os holerites devem ser enviados em PDF.")
+    stored = f"holerite_{uuid.uuid4().hex}.pdf"
+    file.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored))
+    return filename, stored
+
+
+def _upsert_payslip(emp, year, month, file, matched_by):
+    original, stored = _save_payslip_file(file)
+    existing = Payslip.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+
+    old_stored = None
+    if existing:
+        old_stored = existing.stored_name
+        existing.original_name = original
+        existing.stored_name = stored
+        existing.matched_by = matched_by
+        existing.uploaded_at = now_local()
+        existing.uploaded_by = current_user.id
+        existing.employee_viewed_at = None
+        item = existing
+    else:
+        item = Payslip(
+            employee_id=emp.id,
+            year=year,
+            month=month,
+            original_name=original,
+            stored_name=stored,
+            matched_by=matched_by,
+            uploaded_by=current_user.id,
+        )
+        db.session.add(item)
+
+    db.session.flush()
+
+    if old_stored and old_stored != stored:
+        old_path = os.path.join(current_app.config["UPLOAD_FOLDER"], old_stored)
+        try:
+            if os.path.isfile(old_path):
+                os.remove(old_path)
+        except OSError:
+            pass
+
+    return item
 
 def _expected_daily_minutes(emp):
     """Jornada diária de referência. Usa horários padrão e, na ausência, carga semanal/5."""
@@ -458,13 +555,14 @@ def employee_detail(employee_id):
     certs = MedicalCertificate.query.filter_by(employee_id=emp.id).order_by(MedicalCertificate.uploaded_at.desc()).all()
     reqs = Request.query.filter_by(employee_id=emp.id).order_by(Request.requested_at.desc()).limit(50).all()
     docs = Document.query.filter_by(employee_id=emp.id).order_by(Document.uploaded_at.desc()).all()
+    payslips = Payslip.query.filter_by(employee_id=emp.id).order_by(Payslip.year.desc(), Payslip.month.desc()).all()
     clocks = TimeClock.query.filter_by(employee_id=emp.id).order_by(TimeClock.punched_at.desc()).limit(120).all()
     bank_adjustments = BankHourAdjustment.query.filter_by(employee_id=emp.id).order_by(BankHourAdjustment.created_at.desc()).limit(100).all()
     bank_summary = _bank_summary(emp)
     vacations = Vacation.query.filter_by(employee_id=emp.id).order_by(Vacation.start_date.desc()).all()
     vacation_schedules = VacationSchedule.query.filter_by(employee_id=emp.id).order_by(VacationSchedule.planned_start.asc()).all()
     vacation_summary = _vacation_entitlement(emp)
-    return render_template("employee_detail.html", emp=emp, certs=certs, reqs=reqs, docs=docs, clocks=clocks, bank_adjustments=bank_adjustments, bank_summary=bank_summary, vacations=vacations, vacation_schedules=vacation_schedules, vacation_summary=vacation_summary, current_month=today_local().strftime("%Y-%m"))
+    return render_template("employee_detail.html", emp=emp, certs=certs, reqs=reqs, docs=docs, payslips=payslips, clocks=clocks, bank_adjustments=bank_adjustments, bank_summary=bank_summary, vacations=vacations, vacation_schedules=vacation_schedules, vacation_summary=vacation_summary, current_month=today_local().strftime("%Y-%m"))
 
 
 @bp.route("/employees/<int:employee_id>/reset-password", methods=["POST"])
@@ -936,6 +1034,140 @@ def request_decision(request_id):
     log_action(f"{decision} solicitação", "request", item.id, item.request_type); db.session.commit()
     flash("Decisão registrada.", "success"); return redirect(url_for("rh.approvals"))
 
+
+@bp.route("/payslips")
+@login_required
+def payslips():
+    if current_user.role == ROLE_ADMIN:
+        return redirect(url_for("rh.payslips_manage"))
+    if not current_user.employee:
+        abort(403)
+    rows = (Payslip.query
+            .filter_by(employee_id=current_user.employee.id)
+            .order_by(Payslip.year.desc(), Payslip.month.desc())
+            .all())
+    return render_template("payslips.html", rows=rows)
+
+
+@bp.route("/payslips/manage")
+@login_required
+@roles_required(ROLE_ADMIN)
+def payslips_manage():
+    employees = Employee.query.filter_by(is_active=True).order_by(Employee.full_name).all()
+    rows = (Payslip.query
+            .order_by(Payslip.year.desc(), Payslip.month.desc(), Payslip.uploaded_at.desc())
+            .limit(300).all())
+    return render_template(
+        "payslips_manage.html",
+        employees=employees,
+        rows=rows,
+        current_competence=today_local().strftime("%Y-%m"),
+    )
+
+
+@bp.route("/payslips/upload-batch", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payslips_upload_batch():
+    try:
+        year, month = _parse_competence(request.form.get("competence"))
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("rh.payslips_manage"))
+
+    files = [f for f in request.files.getlist("files") if f and f.filename]
+    if not files:
+        flash("Selecione um ou mais PDFs de holerites.", "danger")
+        return redirect(url_for("rh.payslips_manage"))
+
+    employees = Employee.query.filter_by(is_active=True).order_by(Employee.full_name).all()
+    matched = []
+    unmatched = []
+    invalid = []
+
+    for file in files:
+        if "." not in file.filename or file.filename.rsplit(".", 1)[1].lower() != "pdf":
+            invalid.append(file.filename)
+            continue
+
+        emp = _match_employee_from_filename(file.filename, employees)
+        if not emp:
+            unmatched.append(file.filename)
+            continue
+
+        try:
+            item = _upsert_payslip(emp, year, month, file, "automatic")
+            matched.append((emp.full_name, item.original_name))
+            log_action(
+                "anexou holerite por associação automática",
+                "payslip",
+                item.id,
+                f"{emp.full_name}; competência {month:02d}/{year}; arquivo {item.original_name}"
+            )
+        except ValueError:
+            invalid.append(file.filename)
+
+    db.session.commit()
+
+    if matched:
+        flash(f"{len(matched)} holerite(s) associado(s) com sucesso à competência {month:02d}/{year}.", "success")
+    if unmatched:
+        preview = ", ".join(unmatched[:5])
+        extra = f" e mais {len(unmatched)-5}" if len(unmatched) > 5 else ""
+        flash(
+            f"{len(unmatched)} arquivo(s) não puderam ser associados pelo nome: {preview}{extra}. "
+            "Use a associação manual abaixo.",
+            "warning",
+        )
+    if invalid:
+        flash(f"{len(invalid)} arquivo(s) ignorado(s) porque não eram PDFs válidos.", "danger")
+
+    return redirect(url_for("rh.payslips_manage"))
+
+
+@bp.route("/payslips/upload-manual", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payslips_upload_manual():
+    emp = db.get_or_404(Employee, request.form.get("employee_id", type=int))
+    try:
+        year, month = _parse_competence(request.form.get("competence"))
+        item = _upsert_payslip(emp, year, month, request.files.get("file"), "manual")
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("rh.payslips_manage"))
+
+    log_action(
+        "anexou holerite manualmente",
+        "payslip",
+        item.id,
+        f"{emp.full_name}; competência {month:02d}/{year}; arquivo {item.original_name}"
+    )
+    db.session.commit()
+    flash(f"Holerite de {emp.full_name} — {month:02d}/{year} — salvo com sucesso.", "success")
+    return redirect(url_for("rh.payslips_manage"))
+
+
+@bp.route("/payslips/<int:payslip_id>/delete", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payslip_delete(payslip_id):
+    item = db.get_or_404(Payslip, payslip_id)
+    stored = item.stored_name
+    description = f"{item.employee.full_name}; competência {item.month:02d}/{item.year}"
+    db.session.delete(item)
+    log_action("removeu holerite", "payslip", payslip_id, description)
+    db.session.commit()
+    path = os.path.join(current_app.config["UPLOAD_FOLDER"], stored)
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+    flash("Holerite removido.", "success")
+    return redirect(url_for("rh.payslips_manage"))
+
+
 @bp.route("/documents/<int:employee_id>", methods=["POST"])
 @login_required
 @roles_required(ROLE_ADMIN)
@@ -958,6 +1190,20 @@ def file_download(kind, item_id):
     elif kind == "document":
         item = db.get_or_404(Document, item_id); emp=item.employee
         if current_user.role != ROLE_ADMIN and (not current_user.employee or current_user.employee.id != emp.id): abort(403)
+    elif kind == "payslip":
+        item = db.get_or_404(Payslip, item_id); emp=item.employee
+        # Holerite contém informação remuneratória: acesso apenas do RH e do titular.
+        if current_user.role != ROLE_ADMIN and (not current_user.employee or current_user.employee.id != emp.id):
+            abort(403)
+        if current_user.role != ROLE_ADMIN and not item.employee_viewed_at:
+            item.employee_viewed_at = now_local()
+            log_action(
+                "visualizou holerite",
+                "payslip",
+                item.id,
+                f"{emp.full_name}; competência {item.month:02d}/{item.year}"
+            )
+            db.session.commit()
     else: abort(404)
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], item.stored_name, as_attachment=False, download_name=item.original_name)
 

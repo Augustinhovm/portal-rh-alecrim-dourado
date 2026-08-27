@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Meus holerites · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <h1>Meus holerites</h1>
+    <p class="muted">Seus demonstrativos mensais disponibilizados pelo RH.</p>
+  </div>
+</div>
+
+<div class="panel payslip-list-panel">
+  <div class="table-wrap">
+    <table>
+      <tr>
+        <th>Competência</th>
+        <th>Disponibilizado em</th>
+        <th>Situação</th>
+        <th>Documento</th>
+      </tr>
+      {% for p in rows %}
+      <tr>
+        <td><strong>{{'%02d'|format(p.month)}}/{{p.year}}</strong></td>
+        <td>{{p.uploaded_at.strftime('%d/%m/%Y %H:%M')}}</td>
+        <td>
+          {% if p.employee_viewed_at %}
+            <span class="badge approved">Visualizado</span>
+          {% else %}
+            <span class="badge pending">Novo</span>
+          {% endif %}
+        </td>
+        <td>
+          <a class="btn secondary" target="_blank" rel="noopener"
+             href="{{url_for('rh.file_download',kind='payslip',item_id=p.id)}}">Abrir holerite</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Nenhum holerite foi disponibilizado para você.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="panel payslip-security-note">
+  <strong>Documento pessoal</strong>
+  <p class="muted">Os holerites desta área são visíveis somente para você e para o RH/Administrador.</p>
+</div>
+{% endblock %}

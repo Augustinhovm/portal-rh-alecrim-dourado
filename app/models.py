@@ -113,6 +113,24 @@ class Request(db.Model):
     employee = db.relationship("Employee")
     decider = db.relationship("User", foreign_keys=[decided_by])
 
+
+class Payslip(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False, index=True)
+    month = db.Column(db.Integer, nullable=False, index=True)
+    original_name = db.Column(db.String(255), nullable=False)
+    stored_name = db.Column(db.String(255), nullable=False)
+    matched_by = db.Column(db.String(20), nullable=False, default="manual")
+    uploaded_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    employee_viewed_at = db.Column(db.DateTime)
+    employee = db.relationship("Employee")
+    uploader = db.relationship("User", foreign_keys=[uploaded_by])
+    __table_args__ = (
+        db.UniqueConstraint("employee_id", "year", "month", name="uq_payslip_employee_competence"),
+    )
+
 class Document(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)

@@ -2,7 +2,7 @@ from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from .extensions import db
-from .models import Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, VacationSchedule, BankHourAdjustment, ROLE_ADMIN, ROLE_MANAGER
+from .models import Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, VacationSchedule, BankHourAdjustment, Payslip, ROLE_ADMIN, ROLE_MANAGER
 from .timezone import today_local
 
 bp = Blueprint("main", __name__)
@@ -99,6 +99,13 @@ def dashboard():
                 MedicalCertificate.employee_id == emp.id,
                 MedicalCertificate.status == "recebido"
             ).order_by(MedicalCertificate.uploaded_at.desc()).first()
+            data["latest_unread_payslip"] = (Payslip.query
+                .filter(
+                    Payslip.employee_id == emp.id,
+                    Payslip.employee_viewed_at.is_(None)
+                )
+                .order_by(Payslip.year.desc(), Payslip.month.desc())
+                .first())
         else:
             data["bank_minutes"] = 0
             data["bank_scheduled_minutes"] = 0

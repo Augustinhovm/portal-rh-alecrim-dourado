@@ -183,6 +183,42 @@
 
 <div class="panel"><h2>Outras solicitações recentes</h2><div class="table-wrap"><table><tr><th>Data</th><th>Tipo</th><th>Minutos</th><th>Status</th></tr>{% for r in reqs %}<tr><td>{{r.request_date.strftime('%d/%m/%Y')}}</td><td>{{r.request_type.replace('_',' ')|title}}</td><td>{{r.minutes}}</td><td><span class="badge {{r.status}}">{{r.status}}</span></td></tr>{% else %}<tr><td colspan="4">Nenhuma solicitação.</td></tr>{% endfor %}</table></div></div>
 
+
+{% if current_user.role == 'admin' or (current_user.employee and current_user.employee.id == emp.id) %}
+<div class="panel" id="holerites">
+  <div class="section-heading">
+    <div>
+      <h2>Holerites</h2>
+      <p class="muted">Demonstrativos mensais disponibilizados pelo RH.</p>
+    </div>
+    {% if current_user.role == 'admin' %}
+      <a class="btn secondary" href="{{url_for('rh.payslips_manage')}}">Gerenciar holerites</a>
+    {% endif %}
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Competência</th><th>Disponibilizado</th><th>Visualização</th><th>Documento</th></tr>
+      {% for p in payslips %}
+      <tr>
+        <td><strong>{{'%02d'|format(p.month)}}/{{p.year}}</strong></td>
+        <td>{{p.uploaded_at.strftime('%d/%m/%Y')}}</td>
+        <td>
+          {% if p.employee_viewed_at %}
+            {{p.employee_viewed_at.strftime('%d/%m/%Y %H:%M')}}
+          {% else %}
+            <span class="badge pending">Não visualizado</span>
+          {% endif %}
+        </td>
+        <td><a target="_blank" rel="noopener" href="{{url_for('rh.file_download',kind='payslip',item_id=p.id)}}">Abrir holerite</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Nenhum holerite disponibilizado.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <div class="panel"><h2>Atestados</h2><div class="table-wrap"><table><tr><th>Início</th><th>Dias</th><th>Status</th>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<th>Arquivo</th>{% endif %}</tr>{% for c in certs %}<tr><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td>{{c.status}}</td>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<td><a href="{{url_for('rh.file_download',kind='certificate',item_id=c.id)}}">Abrir</a></td>{% endif %}</tr>{% else %}<tr><td colspan="4">Nenhum atestado.</td></tr>{% endfor %}</table></div></div>
 
 

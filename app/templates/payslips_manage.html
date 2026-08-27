@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Gestão de holerites · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <h1>Gestão de holerites</h1>
+    <p class="muted">Envie os demonstrativos mensais e distribua automaticamente aos colaboradores.</p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Envio mensal em lote</h2>
+      <p class="muted">Selecione a competência e vários PDFs. O Portal associa cada arquivo ao colaborador pelo nome completo.</p>
+    </div>
+  </div>
+
+  <div class="payslip-name-rule">
+    <strong>Como nomear os arquivos</strong>
+    <p>O nome completo cadastrado precisa aparecer no nome do PDF. Exemplo: <code>Holerite - Maria Aparecida da Silva - 08-2026.pdf</code>.</p>
+    <p class="muted">A comparação ignora acentos, maiúsculas/minúsculas, hífens e espaços extras.</p>
+  </div>
+
+  <form method="post" action="{{url_for('rh.payslips_upload_batch')}}" enctype="multipart/form-data" class="form-grid">
+    <label>Competência
+      <input type="month" name="competence" value="{{current_competence}}" required>
+    </label>
+    <label class="full">Holerites em PDF
+      <input type="file" name="files" accept=".pdf,application/pdf" multiple required>
+      <small>Você pode selecionar todos os PDFs da folha daquele mês de uma só vez.</small>
+    </label>
+    <div class="full"><button type="submit">Associar e disponibilizar holerites</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Associação manual</h2>
+      <p class="muted">Use quando o nome do PDF não corresponder exatamente ao cadastro do colaborador.</p>
+    </div>
+  </div>
+  <form method="post" action="{{url_for('rh.payslips_upload_manual')}}" enctype="multipart/form-data" class="form-grid">
+    <label>Colaborador
+      <select name="employee_id" required>
+        <option value="">Selecione</option>
+        {% for e in employees %}<option value="{{e.id}}">{{e.full_name}}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Competência
+      <input type="month" name="competence" value="{{current_competence}}" required>
+    </label>
+    <label class="full">PDF do holerite
+      <input type="file" name="file" accept=".pdf,application/pdf" required>
+    </label>
+    <div class="full"><button type="submit">Salvar holerite individual</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="heading">
+    <div><h2>Holerites disponibilizados</h2><p class="muted">Últimos documentos registrados no Portal RH.</p></div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr>
+        <th>Competência</th><th>Colaborador</th><th>Associação</th><th>Envio</th>
+        <th>Visualização</th><th>Arquivo</th><th>Ação</th>
+      </tr>
+      {% for p in rows %}
+      <tr>
+        <td><strong>{{'%02d'|format(p.month)}}/{{p.year}}</strong></td>
+        <td>{{p.employee.full_name}}</td>
+        <td>{% if p.matched_by=='automatic' %}<span class="badge approved">Automática</span>{% else %}<span class="badge">Manual</span>{% endif %}</td>
+        <td>{{p.uploaded_at.strftime('%d/%m/%Y %H:%M')}}</td>
+        <td>
+          {% if p.employee_viewed_at %}
+            {{p.employee_viewed_at.strftime('%d/%m/%Y %H:%M')}}
+          {% else %}
+            <span class="badge pending">Ainda não visualizado</span>
+          {% endif %}
+        </td>
+        <td><a target="_blank" rel="noopener" href="{{url_for('rh.file_download',kind='payslip',item_id=p.id)}}">Abrir</a></td>
+        <td>
+          <form method="post" action="{{url_for('rh.payslip_delete',payslip_id=p.id)}}" onsubmit="return confirm('Remover este holerite do Portal RH?');">
+            <button type="submit" class="danger-btn">Remover</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">Nenhum holerite cadastrado.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}
