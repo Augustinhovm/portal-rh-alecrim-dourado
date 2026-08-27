@@ -36,36 +36,12 @@ def _normalize_person_name(value):
     return " ".join(value.split())
 
 
-def _extract_pdf_text(file_storage):
-    """Extrai a camada de texto do PDF enviado pelo RH."""
-    try:
-        file_storage.stream.seek(0)
-        reader = PdfReader(file_storage.stream)
-        parts = []
-        for page in reader.pages:
-            try:
-                page_text = page.extract_text() or ""
-            except Exception:
-                page_text = ""
-            if page_text:
-                parts.append(page_text)
-        file_storage.stream.seek(0)
-        return "\n".join(parts)
-    except Exception:
-        try:
-            file_storage.stream.seek(0)
-        except Exception:
-            pass
-        return ""
-
-
-def _match_employee_from_pdf(file_storage, employees):
+def _match_employee_from_text(text, employees):
     """
-    Procura o nome completo cadastrado dentro do texto do próprio holerite.
-    Não usa o nome do arquivo para definir o colaborador.
+    Identifica o colaborador pelo nome completo encontrado no texto de uma página.
+    Retorna (employee, status).
     """
-    extracted_text = _extract_pdf_text(file_storage)
-    normalized_text = _normalize_person_name(extracted_text)
+    normalized_text = _normalize_person_name(text)
     if not normalized_text:
         return None, "sem_texto"
 
@@ -87,11 +63,116 @@ def _match_employee_from_pdf(file_storage, employees):
     candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
     best = candidates[0]
 
-    # Evita associação automática quando a identificação não for inequívoca.
     if len(candidates) > 1 and candidates[1][0:2] == best[0:2]:
         return None, "ambiguo"
 
     return best[2], "automatico_pdf"
+
+
+def _split_payslip_pdf_by_employee(file_storage, employees):
+    """
+    Lê um PDF consolidado página por página.
+
+    Retorna:
+    - groups: {employee_id: {"employee": Employee, "pages": [PageObject], "page_numbers": [int]}}
+    - unmatched: [{"page": int, "reason": str}]
+    """
+    try:
+        file_storage.stream.seek(0)
+        reader = PdfReader(file_storage.stream)
+    except Exception:
+        try:
+            file_storage.stream.seek(0)
+        except Exception:
+            pass
+        raise ValueError("Não foi possível abrir o PDF consolidado.")
+
+    groups = {}
+    unmatched = []
+
+    for index, page in enumerate(reader.pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
+
+        emp, status = _match_employee_from_text(text, employees)
+
+        if not emp:
+            unmatched.append({"page": index, "reason": status})
+            continue
+
+        bucket = groups.setdefault(
+            emp.id,
+            {"employee": emp, "pages": [], "page_numbers": []}
+        )
+        bucket["pages"].append(page)
+        bucket["page_numbers"].append(index)
+
+    try:
+        file_storage.stream.seek(0)
+    except Exception:
+        pass
+
+    return groups, unmatched
+
+
+def _save_employee_payslip_pages(emp, year, month, pages, original_name, matched_by):
+    """
+    Gera um PDF individual somente com as páginas associadas ao colaborador.
+    Substitui o holerite existente da mesma competência.
+    """
+    writer = PdfWriter()
+    for page in pages:
+        writer.add_page(page)
+
+    stored = f"holerite_{emp.id}_{year}_{month:02d}_{uuid.uuid4().hex}.pdf"
+    output_path = os.path.join(current_app.config["UPLOAD_FOLDER"], stored)
+
+    with open(output_path, "wb") as output_file:
+        writer.write(output_file)
+
+    existing = Payslip.query.filter_by(
+        employee_id=emp.id,
+        year=year,
+        month=month,
+    ).first()
+
+    old_stored = None
+    individual_original = f"Holerite - {emp.full_name} - {month:02d}-{year}.pdf"
+
+    if existing:
+        old_stored = existing.stored_name
+        existing.original_name = individual_original
+        existing.stored_name = stored
+        existing.matched_by = matched_by
+        existing.uploaded_at = now_local()
+        existing.uploaded_by = current_user.id
+        existing.employee_viewed_at = None
+        item = existing
+    else:
+        item = Payslip(
+            employee_id=emp.id,
+            year=year,
+            month=month,
+            original_name=individual_original,
+            stored_name=stored,
+            matched_by=matched_by,
+            uploaded_by=current_user.id,
+        )
+        db.session.add(item)
+
+    db.session.flush()
+
+    if old_stored and old_stored != stored:
+        old_path = os.path.join(current_app.config["UPLOAD_FOLDER"], old_stored)
+        try:
+            if os.path.isfile(old_path):
+                os.remove(old_path)
+        except OSError:
+            pass
+
+    return item
 
 
 def _parse_competence(value):
@@ -1106,60 +1187,80 @@ def payslips_upload_batch():
         flash(str(exc), "danger")
         return redirect(url_for("rh.payslips_manage"))
 
-    files = [f for f in request.files.getlist("files") if f and f.filename]
-    if not files:
-        flash("Selecione um ou mais PDFs de holerites.", "danger")
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Selecione o PDF consolidado dos holerites.", "danger")
+        return redirect(url_for("rh.payslips_manage"))
+
+    if "." not in file.filename or file.filename.rsplit(".", 1)[1].lower() != "pdf":
+        flash("O arquivo consolidado precisa estar em PDF.", "danger")
         return redirect(url_for("rh.payslips_manage"))
 
     employees = Employee.query.filter_by(is_active=True).order_by(Employee.full_name).all()
-    matched = []
-    unmatched = []
-    invalid = []
 
-    for file in files:
-        if "." not in file.filename or file.filename.rsplit(".", 1)[1].lower() != "pdf":
-            invalid.append(file.filename)
-            continue
+    try:
+        groups, unmatched = _split_payslip_pdf_by_employee(file, employees)
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("rh.payslips_manage"))
 
-        emp, match_status = _match_employee_from_pdf(file, employees)
-        if not emp:
-            unmatched.append((file.filename, match_status))
-            continue
-
-        try:
-            item = _upsert_payslip(emp, year, month, file, "automatic_pdf")
-            matched.append((emp.full_name, item.original_name))
-            log_action(
-                "anexou holerite por leitura automática do PDF",
-                "payslip",
-                item.id,
-                f"{emp.full_name}; competência {month:02d}/{year}; arquivo {item.original_name}"
-            )
-        except ValueError:
-            invalid.append(file.filename)
+    created = []
+    for group in groups.values():
+        emp = group["employee"]
+        item = _save_employee_payslip_pages(
+            emp=emp,
+            year=year,
+            month=month,
+            pages=group["pages"],
+            original_name=file.filename,
+            matched_by="automatic_pdf_page",
+        )
+        created.append((emp, item, group["page_numbers"]))
+        log_action(
+            "separou holerite de PDF consolidado",
+            "payslip",
+            item.id,
+            (
+                f"{emp.full_name}; competência {month:02d}/{year}; "
+                f"página(s) {', '.join(map(str, group['page_numbers']))}"
+            ),
+        )
 
     db.session.commit()
 
-    if matched:
-        flash(f"{len(matched)} holerite(s) associado(s) com sucesso à competência {month:02d}/{year}.", "success")
-    if unmatched:
-        labels = []
-        for filename, reason in unmatched[:5]:
-            reason_text = {
-                "sem_texto": "PDF sem texto pesquisável",
-                "nao_encontrado": "nome cadastrado não encontrado no conteúdo",
-                "ambiguo": "mais de um colaborador possível",
-            }.get(reason, "não identificado")
-            labels.append(f"{filename} ({reason_text})")
-        preview = "; ".join(labels)
-        extra = f"; e mais {len(unmatched)-5}" if len(unmatched) > 5 else ""
+    if created:
         flash(
-            f"{len(unmatched)} arquivo(s) não puderam ser associados automaticamente: "
-            f"{preview}{extra}. Use a associação manual abaixo.",
+            f"{len(created)} colaborador(es) receberam holerite da competência {month:02d}/{year}.",
+            "success",
+        )
+    else:
+        flash(
+            "Nenhuma página pôde ser associada automaticamente a um colaborador.",
+            "danger",
+        )
+
+    if unmatched:
+        reason_counts = {}
+        for row in unmatched:
+            reason_counts[row["reason"]] = reason_counts.get(row["reason"], 0) + 1
+
+        details = []
+        if reason_counts.get("sem_texto"):
+            details.append(f"{reason_counts['sem_texto']} sem texto pesquisável")
+        if reason_counts.get("nao_encontrado"):
+            details.append(f"{reason_counts['nao_encontrado']} sem nome cadastrado identificado")
+        if reason_counts.get("ambiguo"):
+            details.append(f"{reason_counts['ambiguo']} com identificação ambígua")
+
+        page_list = ", ".join(str(row["page"]) for row in unmatched[:20])
+        if len(unmatched) > 20:
+            page_list += "..."
+
+        flash(
+            f"{len(unmatched)} página(s) não foram distribuídas automaticamente "
+            f"(páginas: {page_list}). " + "; ".join(details) + ".",
             "warning",
         )
-    if invalid:
-        flash(f"{len(invalid)} arquivo(s) ignorado(s) porque não eram PDFs válidos.", "danger")
 
     return redirect(url_for("rh.payslips_manage"))
 

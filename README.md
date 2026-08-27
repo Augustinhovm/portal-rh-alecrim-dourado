@@ -198,3 +198,7 @@ O RH pode selecionar uma competência e enviar vários holerites em PDF de uma v
 
 ## V8.1.1 — Associação pelo conteúdo do PDF
 O Portal passa a extrair o texto do próprio holerite e associa o documento ao colaborador quando encontra o nome completo cadastrado. O nome do arquivo não participa da identificação. PDFs sem camada de texto permanecem para associação manual.
+
+
+## V8.1.2 — PDF consolidado de holerites
+O RH envia um único PDF mensal contendo todos os holerites. O Portal analisa cada página, identifica o colaborador pelo nome completo no conteúdo e gera um PDF individual contendo somente as páginas daquele colaborador. Páginas não identificadas não são distribuídas automaticamente.
