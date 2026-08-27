@@ -130,6 +130,29 @@ def dashboard():
                 )
                 .order_by(VacationSchedule.planned_start.asc())
                 .first())
+    # Holerites ficam vinculados diretamente ao cadastro Employee do usuário logado.
+    # Esta consulta é feita fora dos blocos de papel para funcionar também quando
+    # um colaborador possui perfil de responsável/gestor.
+    if current_user.role != ROLE_ADMIN and current_user.employee:
+        employee_id = current_user.employee.id
+        data["latest_payslip"] = (Payslip.query
+            .filter(Payslip.employee_id == employee_id)
+            .order_by(Payslip.year.desc(), Payslip.month.desc(), Payslip.uploaded_at.desc())
+            .first())
+        data["unread_payslip_count"] = (Payslip.query
+            .filter(
+                Payslip.employee_id == employee_id,
+                Payslip.employee_viewed_at.is_(None)
+            )
+            .count())
+        data["latest_unread_payslip"] = (Payslip.query
+            .filter(
+                Payslip.employee_id == employee_id,
+                Payslip.employee_viewed_at.is_(None)
+            )
+            .order_by(Payslip.year.desc(), Payslip.month.desc(), Payslip.uploaded_at.desc())
+            .first())
+
     return render_template("dashboard.html", data=data, today=today)
 
 def db_sum_bank():

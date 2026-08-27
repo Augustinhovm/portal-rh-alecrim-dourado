@@ -65,13 +65,14 @@
   <div class="table-wrap">
     <table>
       <tr>
-        <th>Competência</th><th>Colaborador</th><th>Associação</th><th>Envio</th>
+        <th>Competência</th><th>Colaborador</th><th>Recebedor no Portal</th><th>Associação</th><th>Envio</th>
         <th>Visualização</th><th>Arquivo</th><th>Ação</th>
       </tr>
       {% for p in rows %}
       <tr>
         <td><strong>{{'%02d'|format(p.month)}}/{{p.year}}</strong></td>
         <td>{{p.employee.full_name}}</td>
+        <td>{% if p.employee.user %}<strong>{{p.employee.user.email}}</strong>{% else %}<span class="badge pending">Sem acesso vinculado</span>{% endif %}</td>
         <td>{% if p.matched_by in ['automatic_pdf','automatic_pdf_page'] %}<span class="badge approved">Leitura página a página</span>{% else %}<span class="badge">Manual</span>{% endif %}</td>
         <td>{{p.uploaded_at.strftime('%d/%m/%Y %H:%M')}}</td>
         <td>
@@ -89,7 +90,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="7">Nenhum holerite cadastrado.</td></tr>
+      <tr><td colspan="8">Nenhum holerite cadastrado.</td></tr>
       {% endfor %}
     </table>
   </div>

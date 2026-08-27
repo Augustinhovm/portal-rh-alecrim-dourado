@@ -153,6 +153,20 @@
         {% endif %}
       </section>
 
+      <section class="side-widget payslip-widget">
+        <div class="widget-title"><span class="widget-icon">R$</span><h2>Último holerite</h2></div>
+        {% if data.latest_payslip %}
+        <div class="vacation-widget-body">
+          <small>Competência</small><strong>{{'%02d'|format(data.latest_payslip.month)}}/{{data.latest_payslip.year}}</strong>
+          <small>Status</small>
+          <strong>{% if data.latest_payslip.employee_viewed_at %}Visualizado{% else %}Novo documento{% endif %}</strong>
+          <a class="vacation-detail-btn" href="{{url_for('rh.payslips')}}">Ver meus holerites</a>
+        </div>
+        {% else %}
+        <div class="empty-widget">Nenhum holerite disponibilizado.</div>
+        {% endif %}
+      </section>
+
       <section class="side-widget bank-widget">
         <div class="widget-title"><span class="widget-icon">◷</span><h2>Extrato do banco de horas</h2></div>
         <div class="bank-widget-row"><span>Saldo anterior</span><strong>{{data.bank_previous_balance|minutes_hhmm}}</strong></div>

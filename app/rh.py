@@ -1152,13 +1152,21 @@ def request_decision(request_id):
 def payslips():
     if current_user.role == ROLE_ADMIN:
         return redirect(url_for("rh.payslips_manage"))
-    if not current_user.employee:
+
+    emp = current_user.employee
+    if not emp:
         abort(403)
+
     rows = (Payslip.query
-            .filter_by(employee_id=current_user.employee.id)
-            .order_by(Payslip.year.desc(), Payslip.month.desc())
+            .filter(Payslip.employee_id == emp.id)
+            .order_by(Payslip.year.desc(), Payslip.month.desc(), Payslip.uploaded_at.desc())
             .all())
-    return render_template("payslips.html", rows=rows)
+
+    return render_template(
+        "payslips.html",
+        rows=rows,
+        emp=emp,
+    )
 
 
 @bp.route("/payslips/manage")
@@ -1205,8 +1213,15 @@ def payslips_upload_batch():
         return redirect(url_for("rh.payslips_manage"))
 
     created = []
+    skipped_without_access = []
     for group in groups.values():
         emp = group["employee"]
+
+        # O holerite precisa estar associado a um cadastro com acesso ao Portal.
+        if not emp.user:
+            skipped_without_access.append(emp.full_name)
+            continue
+
         item = _save_employee_payslip_pages(
             emp=emp,
             year=year,
@@ -1237,6 +1252,14 @@ def payslips_upload_batch():
         flash(
             "Nenhuma página pôde ser associada automaticamente a um colaborador.",
             "danger",
+        )
+
+    if skipped_without_access:
+        flash(
+            f"{len(skipped_without_access)} colaborador(es) foram identificados no PDF, "
+            "mas não possuem usuário de acesso vinculado ao Portal RH: "
+            + ", ".join(skipped_without_access[:8]),
+            "warning",
         )
 
     if unmatched:

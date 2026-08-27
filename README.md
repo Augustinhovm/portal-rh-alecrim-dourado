@@ -202,3 +202,7 @@ O Portal passa a extrair o texto do próprio holerite e associa o documento ao c
 
 ## V8.1.2 — PDF consolidado de holerites
 O RH envia um único PDF mensal contendo todos os holerites. O Portal analisa cada página, identifica o colaborador pelo nome completo no conteúdo e gera um PDF individual contendo somente as páginas daquele colaborador. Páginas não identificadas não são distribuídas automaticamente.
+
+
+## V8.1.3 — Correção de entrega de holerites
+Reforça o vínculo entre holerite, colaborador e usuário de acesso ao Portal. O colaborador passa a consultar os documentos diretamente pelo `employee_id` associado ao usuário logado. A tela inicial exibe o último holerite e o RH visualiza o e-mail exato do usuário recebedor. Colaboradores identificados no PDF mas sem usuário vinculado são sinalizados e não recebem distribuição automática.

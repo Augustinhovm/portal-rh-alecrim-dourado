@@ -5,6 +5,7 @@
   <div>
     <h1>Meus holerites</h1>
     <p class="muted">Seus demonstrativos mensais disponibilizados pelo RH.</p>
+    {% if emp %}<p class="muted payslip-recipient">Vinculado a: <strong>{{emp.full_name}}</strong> · {{emp.user.email}}</p>{% endif %}
   </div>
 </div>
 
