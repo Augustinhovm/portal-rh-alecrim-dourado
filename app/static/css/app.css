@@ -1777,3 +1777,168 @@ input, select, textarea, button { max-width: 100%; }
     opacity: .88;
   }
 }
+
+
+/* =========================================================
+   V8.0.2 - Login realmente fullscreen
+   ========================================================= */
+html,
+body.portal-login {
+  width: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body.portal-login {
+  height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: #fff;
+}
+
+body.portal-login > main.container,
+body.portal-login main.container {
+  width: 100vw;
+  max-width: none !important;
+  height: 100vh;
+  min-height: 100dvh;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+body.portal-login main.container > .alert {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: min(760px, calc(100vw - 28px));
+  margin: 0;
+  box-shadow: 0 8px 28px rgba(0,0,0,.10);
+}
+
+body.portal-login .auth-page {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 41%) minmax(0, 59%);
+  overflow: hidden;
+}
+
+body.portal-login .auth-brand-panel,
+body.portal-login .auth-form-side {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body.portal-login .auth-brand-panel {
+  display: flex;
+  align-items: stretch;
+}
+
+body.portal-login .auth-brand-inner {
+  width: 100%;
+  height: 100%;
+  padding: clamp(32px, 4.5vw, 72px) clamp(34px, 6vw, 96px);
+}
+
+body.portal-login .auth-form-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(30px, 5vw, 80px);
+  overflow-y: auto;
+}
+
+body.portal-login .auth-card {
+  width: min(470px, 100%);
+  margin: auto;
+}
+
+@media (max-height: 760px) and (min-width: 901px) {
+  body.portal-login .auth-brand-inner {
+    padding-top: 28px;
+    padding-bottom: 28px;
+  }
+
+  body.portal-login .auth-message h1 {
+    font-size: clamp(2.6rem, 4.6vw, 4.8rem);
+    margin-top: 14px;
+    margin-bottom: 12px;
+  }
+
+  body.portal-login .auth-message p {
+    font-size: .96rem;
+    line-height: 1.45;
+  }
+
+  body.portal-login .auth-form-side {
+    padding-top: 26px;
+    padding-bottom: 26px;
+  }
+}
+
+@media (max-width: 900px) {
+  body.portal-login {
+    height: auto;
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  body.portal-login > main.container,
+  body.portal-login main.container {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  body.portal-login .auth-page {
+    width: 100%;
+    height: auto;
+    min-height: 100dvh;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    overflow: visible;
+  }
+
+  body.portal-login .auth-brand-panel {
+    height: auto;
+    min-height: 300px;
+  }
+
+  body.portal-login .auth-brand-inner {
+    height: auto;
+    min-height: 300px;
+  }
+
+  body.portal-login .auth-form-side {
+    height: auto;
+    min-height: calc(100dvh - 300px);
+    padding: 38px 24px 52px;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 520px) {
+  body.portal-login .auth-brand-panel,
+  body.portal-login .auth-brand-inner {
+    min-height: 255px;
+  }
+
+  body.portal-login .auth-brand-inner {
+    padding: 24px 20px;
+  }
+
+  body.portal-login .auth-form-side {
+    min-height: calc(100dvh - 255px);
+    padding: 30px 18px 42px;
+  }
+}

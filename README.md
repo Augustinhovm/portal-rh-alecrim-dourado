@@ -186,3 +186,7 @@ A V8.0 adiciona configuração por ambiente, WSGI, suporte a PostgreSQL, proteç
 
 ## V8.0.1 — Compatibilidade PostgreSQL
 Corrige filtros de data que comparavam `DATE` com strings ISO, comportamento tolerado pelo SQLite mas rejeitado pelo PostgreSQL. Os filtros de ponto, dashboard, atestados, banco de horas e relatórios agora utilizam objetos `date` tipados.
+
+
+## V8.0.2 — Login em tela cheia
+Corrige a página de autenticação para ocupar 100% da largura e altura da viewport, sem margens ou faixas externas. Alertas ficam sobrepostos e não deslocam o layout. O comportamento responsivo para tablet e celular foi preservado.
