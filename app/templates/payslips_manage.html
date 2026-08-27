@@ -12,14 +12,14 @@
   <div class="section-heading">
     <div>
       <h2>Envio mensal em lote</h2>
-      <p class="muted">Selecione a competência e vários PDFs. O Portal associa cada arquivo ao colaborador pelo nome completo.</p>
+      <p class="muted">Selecione a competência e vários PDFs. O Portal lê o conteúdo de cada holerite e procura o nome completo do colaborador cadastrado.</p>
     </div>
   </div>
 
   <div class="payslip-name-rule">
-    <strong>Como nomear os arquivos</strong>
-    <p>O nome completo cadastrado precisa aparecer no nome do PDF. Exemplo: <code>Holerite - Maria Aparecida da Silva - 08-2026.pdf</code>.</p>
-    <p class="muted">A comparação ignora acentos, maiúsculas/minúsculas, hífens e espaços extras.</p>
+    <strong>Como funciona a associação automática</strong>
+    <p>O nome do arquivo não importa. O Portal abre cada PDF, extrai o texto e procura no próprio holerite o nome completo cadastrado do colaborador.</p>
+    <p class="muted">A comparação ignora acentos, maiúsculas/minúsculas e pontuação. PDFs escaneados apenas como imagem, sem texto pesquisável, ficam para associação manual.</p>
   </div>
 
   <form method="post" action="{{url_for('rh.payslips_upload_batch')}}" enctype="multipart/form-data" class="form-grid">
@@ -72,7 +72,7 @@
       <tr>
         <td><strong>{{'%02d'|format(p.month)}}/{{p.year}}</strong></td>
         <td>{{p.employee.full_name}}</td>
-        <td>{% if p.matched_by=='automatic' %}<span class="badge approved">Automática</span>{% else %}<span class="badge">Manual</span>{% endif %}</td>
+        <td>{% if p.matched_by=='automatic_pdf' %}<span class="badge approved">Leitura do PDF</span>{% else %}<span class="badge">Manual</span>{% endif %}</td>
         <td>{{p.uploaded_at.strftime('%d/%m/%Y %H:%M')}}</td>
         <td>
           {% if p.employee_viewed_at %}

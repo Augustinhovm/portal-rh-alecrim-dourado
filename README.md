@@ -194,3 +194,7 @@ Corrige a página de autenticação para ocupar 100% da largura e altura da view
 
 ## V8.1 — Holerites mensais
 O RH pode selecionar uma competência e enviar vários holerites em PDF de uma vez. O Portal associa automaticamente cada PDF ao colaborador quando o nome completo cadastrado aparece no nome do arquivo, ignorando acentos, caixa, espaços e hífens. Arquivos não associados podem ser enviados manualmente. Cada colaborador visualiza somente os próprios holerites. O sistema registra quando o documento foi visualizado e substitui automaticamente um holerite reenviado para a mesma competência.
+
+
+## V8.1.1 — Associação pelo conteúdo do PDF
+O Portal passa a extrair o texto do próprio holerite e associa o documento ao colaborador quando encontra o nome completo cadastrado. O nome do arquivo não participa da identificação. PDFs sem camada de texto permanecem para associação manual.

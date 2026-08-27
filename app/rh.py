@@ -36,31 +36,62 @@ def _normalize_person_name(value):
     return " ".join(value.split())
 
 
-def _match_employee_from_filename(filename, employees):
-    stem = os.path.splitext(filename or "")[0]
-    normalized_file = _normalize_person_name(stem)
-    file_tokens = set(normalized_file.split())
+def _extract_pdf_text(file_storage):
+    """Extrai a camada de texto do PDF enviado pelo RH."""
+    try:
+        file_storage.stream.seek(0)
+        reader = PdfReader(file_storage.stream)
+        parts = []
+        for page in reader.pages:
+            try:
+                page_text = page.extract_text() or ""
+            except Exception:
+                page_text = ""
+            if page_text:
+                parts.append(page_text)
+        file_storage.stream.seek(0)
+        return "\n".join(parts)
+    except Exception:
+        try:
+            file_storage.stream.seek(0)
+        except Exception:
+            pass
+        return ""
+
+
+def _match_employee_from_pdf(file_storage, employees):
+    """
+    Procura o nome completo cadastrado dentro do texto do próprio holerite.
+    Não usa o nome do arquivo para definir o colaborador.
+    """
+    extracted_text = _extract_pdf_text(file_storage)
+    normalized_text = _normalize_person_name(extracted_text)
+    if not normalized_text:
+        return None, "sem_texto"
+
+    document_tokens = set(normalized_text.split())
     candidates = []
 
     for emp in employees:
         normalized_name = _normalize_person_name(emp.full_name)
-        name_tokens = [x for x in normalized_name.split() if x]
+        name_tokens = [token for token in normalized_name.split() if token]
         if not name_tokens:
             continue
-        # Associação por nome completo: todos os componentes do nome cadastrado
-        # precisam estar presentes no nome do arquivo.
-        if all(token in file_tokens for token in name_tokens):
+
+        if all(token in document_tokens for token in name_tokens):
             candidates.append((len(name_tokens), len(normalized_name), emp))
 
     if not candidates:
-        return None
+        return None, "nao_encontrado"
 
     candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
     best = candidates[0]
-    # Se houver dois candidatos com a mesma força, evita associação arriscada.
+
+    # Evita associação automática quando a identificação não for inequívoca.
     if len(candidates) > 1 and candidates[1][0:2] == best[0:2]:
-        return None
-    return best[2]
+        return None, "ambiguo"
+
+    return best[2], "automatico_pdf"
 
 
 def _parse_competence(value):
@@ -1090,16 +1121,16 @@ def payslips_upload_batch():
             invalid.append(file.filename)
             continue
 
-        emp = _match_employee_from_filename(file.filename, employees)
+        emp, match_status = _match_employee_from_pdf(file, employees)
         if not emp:
-            unmatched.append(file.filename)
+            unmatched.append((file.filename, match_status))
             continue
 
         try:
-            item = _upsert_payslip(emp, year, month, file, "automatic")
+            item = _upsert_payslip(emp, year, month, file, "automatic_pdf")
             matched.append((emp.full_name, item.original_name))
             log_action(
-                "anexou holerite por associação automática",
+                "anexou holerite por leitura automática do PDF",
                 "payslip",
                 item.id,
                 f"{emp.full_name}; competência {month:02d}/{year}; arquivo {item.original_name}"
@@ -1112,11 +1143,19 @@ def payslips_upload_batch():
     if matched:
         flash(f"{len(matched)} holerite(s) associado(s) com sucesso à competência {month:02d}/{year}.", "success")
     if unmatched:
-        preview = ", ".join(unmatched[:5])
-        extra = f" e mais {len(unmatched)-5}" if len(unmatched) > 5 else ""
+        labels = []
+        for filename, reason in unmatched[:5]:
+            reason_text = {
+                "sem_texto": "PDF sem texto pesquisável",
+                "nao_encontrado": "nome cadastrado não encontrado no conteúdo",
+                "ambiguo": "mais de um colaborador possível",
+            }.get(reason, "não identificado")
+            labels.append(f"{filename} ({reason_text})")
+        preview = "; ".join(labels)
+        extra = f"; e mais {len(unmatched)-5}" if len(unmatched) > 5 else ""
         flash(
-            f"{len(unmatched)} arquivo(s) não puderam ser associados pelo nome: {preview}{extra}. "
-            "Use a associação manual abaixo.",
+            f"{len(unmatched)} arquivo(s) não puderam ser associados automaticamente: "
+            f"{preview}{extra}. Use a associação manual abaixo.",
             "warning",
         )
     if invalid:
