@@ -206,3 +206,7 @@ O RH envia um único PDF mensal contendo todos os holerites. O Portal analisa ca
 
 ## V8.1.3 — Correção de entrega de holerites
 Reforça o vínculo entre holerite, colaborador e usuário de acesso ao Portal. O colaborador passa a consultar os documentos diretamente pelo `employee_id` associado ao usuário logado. A tela inicial exibe o último holerite e o RH visualiza o e-mail exato do usuário recebedor. Colaboradores identificados no PDF mas sem usuário vinculado são sinalizados e não recebem distribuição automática.
+
+
+## V8.2 — Fechamento mensal com assinatura eletrônica
+O fechamento mensal passa a exibir no RH o PDF fechado, a situação de leitura do colaborador, a data/hora da ciência e o PDF assinado. O colaborador precisa abrir o relatório, confirmar que o conferiu e autenticar a assinatura com sua senha pessoal de ponto de seis dígitos. O PDF assinado contém um bloco de assinatura eletrônica com nome, usuário, data/hora, identificador SHA-256 derivado do registro e IP registrado na auditoria. Trata-se de assinatura eletrônica interna do Portal RH, não de certificado digital ICP-Brasil.

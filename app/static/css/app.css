@@ -1979,3 +1979,121 @@ body.portal-login .auth-card {
 /* V8.1.3 - entrega de holerites ao colaborador */
 .payslip-recipient { margin-top: 6px; }
 .payslip-widget .widget-icon { font-size: .72rem; font-weight: 900; }
+
+
+/* =========================================================
+   V8.2 - Fechamento mensal + assinatura eletrônica
+   ========================================================= */
+.closing-filter .compact-form {
+  grid-template-columns: minmax(240px,1fr) auto;
+  align-items: end;
+}
+.closing-filter-action { align-self: end; }
+.closing-table { min-width: 1320px !important; }
+.closing-table td { vertical-align: top; }
+.closing-document-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 145px;
+}
+.compact-btn {
+  min-height: 35px !important;
+  padding: 7px 10px !important;
+  text-align: center;
+}
+.closing-action-form {
+  display: grid;
+  gap: 7px;
+  min-width: 210px;
+}
+.closing-action-form input { min-height: 40px; }
+.closing-explanation h2 { margin-top: 0; }
+.closing-flow {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 14px;
+}
+.closing-flow > div {
+  padding: 15px;
+  border: 1px solid var(--aad-border);
+  border-radius: 12px;
+  background: var(--aad-yellow-pale);
+}
+.closing-flow strong,
+.closing-flow small { display: block; }
+.closing-flow small {
+  margin-top: 5px;
+  color: var(--aad-muted);
+  line-height: 1.4;
+}
+
+.time-signature-notice {
+  align-items: flex-start;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.signature-notice-actions {
+  width: min(255px, 100%);
+  display: grid;
+  gap: 8px;
+}
+.signature-confirm-details {
+  width: 100%;
+}
+.signature-confirm-details > summary {
+  cursor: pointer;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--aad-charcoal);
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 900;
+  text-align: center;
+}
+.signature-confirm-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid #eadfbf;
+  border-radius: 10px;
+  background: #fffdf6;
+}
+.signature-confirm-form label {
+  font-size: .78rem;
+}
+.signature-confirm-form input[type="password"] {
+  min-height: 42px;
+  margin-top: 5px;
+}
+.signature-checkbox {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.35;
+}
+.signature-checkbox input {
+  width: 18px !important;
+  min-height: 18px !important;
+  height: 18px;
+  margin-top: 1px;
+  flex: 0 0 auto;
+}
+.signature-confirm-form button {
+  min-height: 42px;
+}
+
+@media (max-width: 900px) {
+  .closing-flow { grid-template-columns: 1fr 1fr; }
+  .time-signature-notice { flex-wrap: wrap; }
+  .signature-notice-actions {
+    width: 100%;
+    margin-left: 53px;
+  }
+}
+@media (max-width: 600px) {
+  .closing-filter .compact-form { grid-template-columns: 1fr; }
+  .closing-flow { grid-template-columns: 1fr; }
+  .signature-notice-actions { margin-left: 0; }
+}

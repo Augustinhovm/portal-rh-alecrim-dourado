@@ -86,13 +86,46 @@
         <h2>Avisos e pendências</h2>
 
         {% for c in data.closed_unacknowledged %}
-        <div class="notice-row">
+        <div class="notice-row time-signature-notice">
           <span class="notice-icon notice-gold">▣</span>
           <div class="notice-copy">
-            <strong>Seu espelho de ponto de {{'%02d'|format(c.month)}}/{{c.year}} está disponível</strong>
-            <small>Acesse, confira o relatório e registre sua ciência.</small>
+            <strong>Seu espelho de ponto e banco de horas de {{'%02d'|format(c.month)}}/{{c.year}} está disponível</strong>
+            {% if c.employee_viewed_at %}
+              <small>Relatório visualizado. Agora confirme a conferência e assine eletronicamente.</small>
+            {% else %}
+              <small>Abra e confira o relatório antes de registrar sua assinatura eletrônica.</small>
+            {% endif %}
           </div>
-          <a class="notice-action" target="_blank" rel="noopener" href="{{url_for('rh.employee_time_report_pdf',employee_id=current_user.employee.id,month='%04d-%02d'|format(c.year,c.month))}}">Visualizar</a>
+
+          <div class="signature-notice-actions">
+            <a class="notice-action" target="_blank" rel="noopener"
+               href="{{url_for('rh.employee_time_report_pdf',employee_id=current_user.employee.id,month='%04d-%02d'|format(c.year,c.month),version='original')}}">
+              Visualizar PDF
+            </a>
+
+            {% if c.employee_viewed_at %}
+            <details class="signature-confirm-details">
+              <summary>Conferi e quero assinar</summary>
+              <form method="post" action="{{url_for('rh.time_report_acknowledge')}}" class="signature-confirm-form">
+                <input type="hidden" name="year" value="{{c.year}}">
+                <input type="hidden" name="month" value="{{c.month}}">
+
+                <label class="signature-checkbox">
+                  <input type="checkbox" name="confirm_ack" value="1" required>
+                  <span>Declaro que li e conferi meu espelho mensal de ponto e banco de horas.</span>
+                </label>
+
+                <label>Senha pessoal de ponto
+                  <input type="password" name="point_pin" inputmode="numeric"
+                         pattern="[0-9]{6}" minlength="6" maxlength="6"
+                         placeholder="6 dígitos" required>
+                </label>
+
+                <button type="submit">Confirmar e assinar</button>
+              </form>
+            </details>
+            {% endif %}
+          </div>
         </div>
         {% endfor %}
 

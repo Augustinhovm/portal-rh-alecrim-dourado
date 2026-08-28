@@ -1,4 +1,4 @@
-import os, uuid, re, unicodedata
+import os, uuid, re, unicodedata, hashlib
 from io import BytesIO
 from datetime import datetime, date, timedelta
 import calendar
@@ -235,6 +235,16 @@ def _upsert_payslip(emp, year, month, file, matched_by):
             pass
 
     return item
+
+
+def _time_report_signature_code(ack, emp):
+    raw = (
+        f"{ack.id}|{emp.id}|{emp.user_id}|{ack.year}|{ack.month}|"
+        f"{ack.acknowledged_at.isoformat()}"
+    )
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest().upper()
+    return f"RH-{ack.year}{ack.month:02d}-{digest[:20]}"
+
 
 def _expected_daily_minutes(emp):
     """Jornada diária de referência. Usa horários padrão e, na ausência, carga semanal/5."""
@@ -1501,7 +1511,19 @@ def time_closing():
         s=_month_clock_summary(emp,year,month)
         closure=TimePeriodClosure.query.filter_by(employee_id=emp.id,year=year,month=month,status="closed").first()
         ack=TimeReportAcknowledgement.query.filter_by(employee_id=emp.id,year=year,month=month).first()
-        summaries.append({"emp":emp,"summary":s,"closure":closure,"ack":ack})
+        signature_log = None
+        if ack:
+            signature_log = (AuditLog.query
+                .filter_by(entity="time_report_acknowledgement", entity_id=ack.id)
+                .order_by(AuditLog.created_at.desc())
+                .first())
+        summaries.append({
+            "emp": emp,
+            "summary": s,
+            "closure": closure,
+            "ack": ack,
+            "signature_log": signature_log,
+        })
     return render_template("time_closing.html", rows=summaries, month_value=month_value, year=year, month=month)
 
 @bp.route("/employees/<int:employee_id>/time-closing", methods=["POST"])
@@ -1529,20 +1551,66 @@ def employee_time_close(employee_id):
 @bp.route("/time-report/acknowledge", methods=["POST"])
 @login_required
 def time_report_acknowledge():
-    emp=current_user.employee
-    if not emp: abort(403)
-    year=int(request.form["year"]); month=int(request.form["month"])
-    closure=TimePeriodClosure.query.filter_by(employee_id=emp.id,year=year,month=month,status="closed").first()
-    if not closure: abort(400)
+    emp = current_user.employee
+    if not emp:
+        abort(403)
+
+    year = int(request.form["year"])
+    month = int(request.form["month"])
+    closure = TimePeriodClosure.query.filter_by(
+        employee_id=emp.id,
+        year=year,
+        month=month,
+        status="closed",
+    ).first()
+    if not closure:
+        abort(400)
+
     if not closure.employee_viewed_at:
-        flash("Abra e confira o relatório mensal antes de registrar sua ciência.", "danger")
+        flash("Abra e confira o relatório mensal antes de assinar.", "danger")
         return redirect(url_for("main.dashboard"))
-    ack=TimeReportAcknowledgement.query.filter_by(employee_id=emp.id,year=year,month=month).first()
+
+    if request.form.get("confirm_ack") != "1":
+        flash("Confirme que você leu e conferiu o espelho mensal.", "danger")
+        return redirect(url_for("main.dashboard"))
+
+    pin = (request.form.get("point_pin") or "").strip()
+    if not re.fullmatch(r"\d{6}", pin) or not emp.check_point_pin(pin):
+        flash("Senha de ponto inválida. A assinatura não foi registrada.", "danger")
+        return redirect(url_for("main.dashboard"))
+
+    ack = TimeReportAcknowledgement.query.filter_by(
+        employee_id=emp.id,
+        year=year,
+        month=month,
+    ).first()
+
     if not ack:
-        db.session.add(TimeReportAcknowledgement(employee_id=emp.id,year=year,month=month))
-        log_action("deu ciência no espelho de ponto","time_report_acknowledgement",emp.id,f"{month:02d}/{year}")
+        ack = TimeReportAcknowledgement(
+            employee_id=emp.id,
+            year=year,
+            month=month,
+        )
+        db.session.add(ack)
+        db.session.flush()
+
+        signature_code = _time_report_signature_code(ack, emp)
+        log_action(
+            "assinou eletronicamente o espelho mensal de ponto e banco de horas",
+            "time_report_acknowledgement",
+            ack.id,
+            (
+                f"{emp.full_name}; competência {month:02d}/{year}; "
+                f"assinatura {signature_code}; autenticação por sessão e PIN pessoal"
+            ),
+        )
         db.session.commit()
-    flash("Ciência registrada com sucesso.", "success")
+
+    flash(
+        "Espelho mensal conferido e assinado eletronicamente com sucesso. "
+        "O documento assinado já está disponível para o RH.",
+        "success",
+    )
     return redirect(url_for("main.dashboard"))
 
 @bp.route("/time-records")
@@ -1600,6 +1668,19 @@ def employee_time_report_pdf(employee_id):
     closure = TimePeriodClosure.query.filter_by(
         employee_id=emp.id, year=year, month=month, status="closed"
     ).first()
+
+    ack = TimeReportAcknowledgement.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+    report_version = (request.args.get("version") or "original").strip().lower()
+    if report_version not in {"original", "signed"}:
+        report_version = "original"
+
+    if report_version == "signed" and not ack:
+        flash("O colaborador ainda não assinou eletronicamente esta competência.", "danger")
+        if current_user.role == ROLE_ADMIN:
+            return redirect(url_for("rh.time_closing", month=f"{year:04d}-{month:02d}"))
+        return redirect(url_for("main.dashboard"))
 
     if current_user.role != ROLE_ADMIN:
         if not current_user.employee or current_user.employee.id != emp.id:
@@ -1855,6 +1936,60 @@ def employee_time_report_pdf(employee_id):
         story.append(Paragraph(closure_text, note_style))
         story.append(Spacer(1, 2 * mm))
 
+    story.append(Spacer(1, 5 * mm))
+    story.append(Paragraph("<b>ASSINATURA ELETRÔNICA DO COLABORADOR</b>", small_style))
+
+    if report_version == "signed" and ack:
+        signature_log = (AuditLog.query
+            .filter_by(entity="time_report_acknowledgement", entity_id=ack.id)
+            .order_by(AuditLog.created_at.desc())
+            .first())
+        signature_code = _time_report_signature_code(ack, emp)
+        signature_ip = signature_log.ip_address if signature_log and signature_log.ip_address else "-"
+        signer_email = emp.user.email if emp.user else "-"
+        signature_data = [
+            [Paragraph("Status", small_bold), Paragraph("ASSINADO ELETRONICAMENTE", small_bold)],
+            [Paragraph("Colaborador", small_bold), Paragraph(_pdf_text(emp.full_name), small_style)],
+            [Paragraph("Usuário autenticado", small_bold), Paragraph(_pdf_text(signer_email), small_style)],
+            [Paragraph("Data e hora do aceite", small_bold), Paragraph(ack.acknowledged_at.strftime("%d/%m/%Y às %H:%M:%S"), small_style)],
+            [Paragraph("Identificador da assinatura", small_bold), Paragraph(signature_code, small_style)],
+            [Paragraph("Registro de acesso", small_bold), Paragraph(_pdf_text(signature_ip), small_style)],
+            [Paragraph("Método de confirmação", small_bold), Paragraph("Sessão autenticada no Portal RH + senha pessoal de ponto (6 dígitos)", small_style)],
+        ]
+        signature_table = Table(signature_data, colWidths=[55*mm, 145*mm])
+        signature_table.setStyle(TableStyle([
+            ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#D4B13F")),
+            ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#FFF4CF")),
+            ("BACKGROUND", (1,0), (1,0), colors.HexColor("#EAF6EC")),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("TOPPADDING", (0,0), (-1,-1), 5),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ]))
+        story.append(signature_table)
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph(
+            "O colaborador declarou ter visualizado e conferido este espelho mensal, "
+            "registrando seu aceite eletrônico no Portal RH.",
+            note_style,
+        ))
+    else:
+        pending_signature = [
+            [Paragraph("Status", small_bold), Paragraph("AGUARDANDO CIÊNCIA E ASSINATURA DO COLABORADOR", small_style)],
+            [Paragraph("Colaborador", small_bold), Paragraph(_pdf_text(emp.full_name), small_style)],
+            [Paragraph("Competência", small_bold), Paragraph(f"{month:02d}/{year}", small_style)],
+            [Paragraph("Assinatura", small_bold), Paragraph("____________________________________________________________", small_style)],
+        ]
+        pending_table = Table(pending_signature, colWidths=[55*mm, 145*mm])
+        pending_table.setStyle(TableStyle([
+            ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#C8CDD2")),
+            ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#F1F3F5")),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("TOPPADDING", (0,0), (-1,-1), 5),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ]))
+        story.append(pending_table)
+
+    story.append(Spacer(1, 3 * mm))
     story.append(Paragraph(
         f"Documento gerado em {now_local().strftime('%d/%m/%Y às %H:%M:%S')} pelo Portal RH. "
         "Marcações ajustadas administrativamente permanecem registradas na trilha de Auditoria do sistema.",
@@ -1865,8 +2000,9 @@ def employee_time_report_pdf(employee_id):
     output.seek(0)
 
     safe_name = secure_filename(emp.full_name).replace("_", "-") or f"colaborador-{emp.id}"
-    filename = f"ponto-banco-{safe_name}-{year}-{month:02d}.pdf"
-    if current_user.role != ROLE_ADMIN and closure:
+    suffix = "-assinado" if report_version == "signed" and ack else ""
+    filename = f"ponto-banco-{safe_name}-{year}-{month:02d}{suffix}.pdf"
+    if current_user.role != ROLE_ADMIN and closure and report_version == "original":
         closure.employee_viewed_at = now_local()
         log_action(
             "visualizou relatório mensal para ciência",

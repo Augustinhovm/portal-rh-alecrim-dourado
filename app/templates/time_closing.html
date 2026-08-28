@@ -1,6 +1,125 @@
-{% extends 'base.html' %}{% block content %}
-<div class="heading"><div><h1>Fechamento mensal do ponto</h1><p class="muted">Revise pendências antes de fechar a competência.</p></div></div>
-<div class="panel"><form method="get"><label>Competência <input type="month" name="month" value="{{month_value}}"></label> <button>Carregar</button></form></div>
-<div class="panel"><div class="table-wrap"><table><tr><th>Colaborador</th><th>Previsto</th><th>Trabalhado</th><th>Saldo jornada</th><th>Pendências</th><th>Situação</th><th>Ação</th></tr>
-{% for row in rows %}<tr><td><a href="{{url_for('rh.employee_detail',employee_id=row.emp.id)}}">{{row.emp.full_name}}</a></td><td>{{row.summary.expected|minutes_hhmm}}</td><td>{{row.summary.worked|minutes_hhmm}}</td><td>{{row.summary.balance|minutes_hhmm}}</td><td>{{row.summary.incomplete}}</td><td>{% if row.closure %}<span class="badge approved">Fechado</span>{% if row.ack %}<br><small>Ciência registrada</small>{% else %}<br><small>Aguardando ciência</small>{% endif %}{% else %}<span class="badge pending">Aberto</span>{% endif %}</td><td>{% if not row.closure %}<form method="post" action="{{url_for('rh.employee_time_close',employee_id=row.emp.id)}}"><input type="hidden" name="year" value="{{year}}"><input type="hidden" name="month" value="{{month}}">{% if row.summary.incomplete %}<input type="hidden" name="force" value="1"><input name="reason" required placeholder="Justificativa para fechar com pendências">{% endif %}<button>Fechar</button></form>{% else %}—{% endif %}</td></tr>{% endfor %}
-</table></div></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Fechamento mensal do ponto · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <h1>Fechamento mensal do ponto</h1>
+    <p class="muted">Feche a competência, acompanhe a conferência do colaborador e arquive o PDF assinado.</p>
+  </div>
+</div>
+
+<div class="panel closing-filter">
+  <form method="get" class="form-grid compact-form">
+    <label>Competência
+      <input type="month" name="month" value="{{month_value}}" required>
+    </label>
+    <div class="closing-filter-action"><button type="submit">Carregar competência</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="table-wrap">
+    <table class="closing-table">
+      <tr>
+        <th>Colaborador</th>
+        <th>Previsto</th>
+        <th>Trabalhado</th>
+        <th>Saldo jornada</th>
+        <th>Pendências</th>
+        <th>Fechamento</th>
+        <th>Relatório</th>
+        <th>Ciência / assinatura</th>
+        <th>Ação RH</th>
+      </tr>
+
+      {% for row in rows %}
+      <tr>
+        <td>
+          <a href="{{url_for('rh.employee_detail',employee_id=row.emp.id)}}"><strong>{{row.emp.full_name}}</strong></a>
+          {% if row.emp.user %}<br><small>{{row.emp.user.email}}</small>{% endif %}
+        </td>
+        <td>{{row.summary.expected|minutes_hhmm}}</td>
+        <td>{{row.summary.worked|minutes_hhmm}}</td>
+        <td><strong class="{% if row.summary.balance >= 0 %}positive{% else %}negative{% endif %}">{{row.summary.balance|minutes_hhmm}}</strong></td>
+        <td>
+          {% if row.summary.incomplete %}
+            <span class="badge pending">{{row.summary.incomplete}} pendência(s)</span>
+          {% else %}
+            <span class="badge approved">Sem pendências</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.closure %}
+            <span class="badge approved">Fechado</span>
+            <br><small>{{row.closure.closed_at.strftime('%d/%m/%Y %H:%M')}}</small>
+            {% if row.closure.reason %}<br><small>Obs.: {{row.closure.reason}}</small>{% endif %}
+          {% else %}
+            <span class="badge pending">Aberto</span>
+          {% endif %}
+        </td>
+        <td class="closing-document-cell">
+          {% if row.closure %}
+            <a class="btn secondary compact-btn"
+               target="_blank" rel="noopener"
+               href="{{url_for('rh.employee_time_report_pdf',employee_id=row.emp.id,month='%04d-%02d'|format(year,month),version='original')}}">
+              PDF fechado
+            </a>
+            {% if row.ack %}
+              <a class="btn compact-btn"
+                 target="_blank" rel="noopener"
+                 href="{{url_for('rh.employee_time_report_pdf',employee_id=row.emp.id,month='%04d-%02d'|format(year,month),version='signed')}}">
+                PDF assinado
+              </a>
+            {% endif %}
+          {% else %}
+            <span class="muted">Feche a competência primeiro.</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.ack %}
+            <span class="badge approved">Conferido e assinado</span>
+            <br><small>{{row.ack.acknowledged_at.strftime('%d/%m/%Y %H:%M:%S')}}</small>
+            {% if row.signature_log and row.signature_log.ip_address %}
+              <br><small>Registro: {{row.signature_log.ip_address}}</small>
+            {% endif %}
+          {% elif row.closure and row.closure.employee_viewed_at %}
+            <span class="badge pending">Visualizado</span>
+            <br><small>Aguardando assinatura eletrônica</small>
+          {% elif row.closure %}
+            <span class="badge pending">Aguardando ciência</span>
+            <br><small>Colaborador ainda não abriu o PDF.</small>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td>
+          {% if not row.closure %}
+            <form method="post" action="{{url_for('rh.employee_time_close',employee_id=row.emp.id)}}" class="closing-action-form">
+              <input type="hidden" name="year" value="{{year}}">
+              <input type="hidden" name="month" value="{{month}}">
+              {% if row.summary.incomplete %}
+                <input type="hidden" name="force" value="1">
+                <input name="reason" required placeholder="Justificativa para fechar com pendências">
+              {% endif %}
+              <button type="submit">Fechar competência</button>
+            </form>
+          {% else %}
+            <span class="muted">Fechamento concluído</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="panel closing-explanation">
+  <h2>Fluxo do fechamento</h2>
+  <div class="closing-flow">
+    <div><strong>1. RH fecha</strong><small>O PDF fechado fica disponível para conferência.</small></div>
+    <div><strong>2. Colaborador confere</strong><small>Abre o espelho mensal e revisa ponto e banco de horas.</small></div>
+    <div><strong>3. Assinatura eletrônica</strong><small>Confirma o aceite usando sua senha pessoal de ponto.</small></div>
+    <div><strong>4. RH arquiva</strong><small>O PDF assinado aparece automaticamente nesta tela.</small></div>
+  </div>
+</div>
+{% endblock %}
