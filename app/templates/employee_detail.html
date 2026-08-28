@@ -109,7 +109,7 @@
     <summary>Gerar nova senha provisória</summary>
     <form method="post" action="{{ url_for('rh.employee_reset_password', employee_id=emp.id) }}" class="form-grid compact-form">
       <label class="full">Nova senha provisória
-        <input type="password" name="temporary_password" minlength="8" required placeholder="Mínimo de 8 caracteres">
+        <input type="password" name="temporary_password" minlength="10" required placeholder="Mínimo de 10 caracteres">
       </label>
       <p class="muted full">Após essa redefinição, o colaborador será obrigado a criar outra senha pessoal no próximo acesso.</p>
       <div class="full"><button type="submit">Redefinir senha provisória</button></div>

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}Portal RH{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
@@ -147,59 +148,10 @@
   {% block content %}{% endblock %}
 </main>
 
-{% if current_user.is_authenticated %}
-<script>
-(function () {
-  const body = document.body;
-  const sidebar = document.getElementById('sidebar');
-  const overlay = document.getElementById('sidebarOverlay');
-  const toggle = document.getElementById('menuToggle');
-  const close = document.getElementById('sidebarClose');
 
-  function openMenu() {
-    body.classList.add('sidebar-open');
-    sidebar.setAttribute('aria-hidden', 'false');
-    toggle.setAttribute('aria-expanded', 'true');
-  }
 
-  function closeMenu() {
-    body.classList.remove('sidebar-open');
-    sidebar.setAttribute('aria-hidden', 'true');
-    toggle.setAttribute('aria-expanded', 'false');
-  }
 
-  toggle.addEventListener('click', function () {
-    if (body.classList.contains('sidebar-open')) closeMenu();
-    else openMenu();
-  });
 
-  close.addEventListener('click', closeMenu);
-  overlay.addEventListener('click', closeMenu);
-
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') closeMenu();
-  });
-
-  sidebar.querySelectorAll('a').forEach(function (link) {
-    link.addEventListener('click', closeMenu);
-  });
-})();
-</script>
-{% endif %}
-
-<script>
-(function () {
-  const token = {{ csrf_token()|tojson }};
-  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (form) {
-    if (form.querySelector('input[name="_csrf_token"]')) return;
-    const field = document.createElement('input');
-    field.type = 'hidden';
-    field.name = '_csrf_token';
-    field.value = token;
-    form.appendChild(field);
-  });
-})();
-</script>
-
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
 </html>

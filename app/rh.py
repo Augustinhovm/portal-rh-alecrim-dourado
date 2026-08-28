@@ -1,4 +1,4 @@
-import os, uuid, re, unicodedata, hashlib
+import os, uuid, re, unicodedata, hashlib, mimetypes
 from io import BytesIO
 from datetime import datetime, date, timedelta
 import calendar
@@ -16,12 +16,120 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
-from .security import roles_required, can_manage_employee, log_action
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .security import roles_required, can_manage_employee, log_action, client_ip
 from .timezone import now_local, today_local
 
 bp = Blueprint("rh", __name__, url_prefix="/rh")
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp"}
+
+MAX_IMAGE_PIXELS = 30_000_000
+PIN_MAX_FAILURES = 5
+PIN_BLOCK_MINUTES = 15
+
+
+def _safe_original_filename(filename, fallback="arquivo"):
+    name = secure_filename(filename or "")[:180]
+    return name or fallback
+
+
+def _chmod_private(path):
+    """No Linux/Render, restringe o arquivo ao usuário do processo."""
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _validate_pdf_stream(file_storage):
+    """Valida assinatura e estrutura PDF antes de persistir o upload."""
+    stream = file_storage.stream
+    stream.seek(0)
+    header = stream.read(5)
+    stream.seek(0)
+    if header != b"%PDF-":
+        raise ValueError("O conteúdo do arquivo não corresponde a um PDF válido.")
+    try:
+        reader = PdfReader(stream)
+        _ = len(reader.pages)
+        if len(reader.pages) < 1:
+            raise ValueError
+    except Exception:
+        stream.seek(0)
+        raise ValueError("O PDF enviado está corrompido ou não pôde ser validado.")
+    stream.seek(0)
+
+
+def _validate_image_stream(file_storage):
+    """Decodifica a imagem para impedir arquivos executáveis disfarçados de imagem."""
+    stream = file_storage.stream
+    stream.seek(0)
+    try:
+        image = PILImage.open(stream)
+        width, height = image.size
+        if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+            raise ValueError
+        fmt = (image.format or "").upper()
+        if fmt not in {"JPEG", "PNG", "WEBP"}:
+            raise ValueError
+        image.verify()
+    except Exception:
+        stream.seek(0)
+        raise ValueError("A imagem enviada é inválida ou excede os limites de segurança.")
+    stream.seek(0)
+
+
+def _validate_uploaded_content(file_storage, ext):
+    ext = (ext or "").lower()
+    if ext == "pdf":
+        _validate_pdf_stream(file_storage)
+    elif ext in {"png", "jpg", "jpeg", "webp"}:
+        _validate_image_stream(file_storage)
+    else:
+        raise ValueError("Tipo de arquivo não permitido.")
+
+
+def _pin_throttle_key(emp):
+    raw = f"pin|{emp.id}|{client_ip()}|{current_app.config['SECRET_KEY']}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _pin_is_blocked(emp):
+    row = AuthThrottle.query.filter_by(key_hash=_pin_throttle_key(emp)).first()
+    if not row:
+        return False
+    now = now_local()
+    if row.blocked_until and row.blocked_until > now:
+        return True
+    if row.blocked_until and row.blocked_until <= now:
+        db.session.delete(row)
+        db.session.commit()
+    return False
+
+
+def _pin_failure(emp):
+    key = _pin_throttle_key(emp)
+    now = now_local()
+    row = AuthThrottle.query.filter_by(key_hash=key).first()
+    if not row:
+        row = AuthThrottle(key_hash=key, failures=0, window_started_at=now)
+        db.session.add(row)
+    if not row.window_started_at or now - row.window_started_at > timedelta(minutes=PIN_BLOCK_MINUTES):
+        row.failures = 0
+        row.window_started_at = now
+    row.failures += 1
+    row.last_failure_at = now
+    if row.failures >= PIN_MAX_FAILURES:
+        row.blocked_until = now + timedelta(minutes=PIN_BLOCK_MINUTES)
+    db.session.commit()
+
+
+def _pin_success(emp):
+    row = AuthThrottle.query.filter_by(key_hash=_pin_throttle_key(emp)).first()
+    if row:
+        db.session.delete(row)
+        db.session.commit()
+
 
 
 
@@ -131,6 +239,7 @@ def _save_employee_payslip_pages(emp, year, month, pages, original_name, matched
 
     with open(output_path, "wb") as output_file:
         writer.write(output_file)
+    _chmod_private(output_path)
 
     existing = Payslip.query.filter_by(
         employee_id=emp.id,
@@ -188,11 +297,16 @@ def _parse_competence(value):
 def _save_payslip_file(file):
     if not file or not file.filename:
         raise ValueError("Selecione um arquivo de holerite.")
-    filename = secure_filename(file.filename)
+    filename = _safe_original_filename(file.filename, "holerite.pdf")
     if "." not in filename or filename.rsplit(".", 1)[1].lower() != "pdf":
         raise ValueError("Os holerites devem ser enviados em PDF.")
+
+    _validate_pdf_stream(file)
+
     stored = f"holerite_{uuid.uuid4().hex}.pdf"
-    file.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored))
+    path = os.path.join(current_app.config["UPLOAD_FOLDER"], stored)
+    file.save(path)
+    _chmod_private(path)
     return filename, stored
 
 
@@ -548,10 +662,18 @@ def allowed_file(name):
 def save_upload(file):
     if not file or not file.filename or not allowed_file(file.filename):
         raise ValueError("Envie um arquivo PDF ou imagem válida.")
-    original = secure_filename(file.filename)
-    ext = original.rsplit('.',1)[1].lower()
+
+    original = _safe_original_filename(file.filename)
+    if "." not in original:
+        raise ValueError("Arquivo sem extensão válida.")
+    ext = original.rsplit(".", 1)[1].lower()
+
+    _validate_uploaded_content(file, ext)
+
     stored = f"{uuid.uuid4().hex}.{ext}"
-    file.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored))
+    path = os.path.join(current_app.config["UPLOAD_FOLDER"], stored)
+    file.save(path)
+    _chmod_private(path)
     return original, stored
 
 
@@ -560,14 +682,19 @@ PROFILE_PHOTO_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 def save_profile_photo(file):
     if not file or not file.filename:
         return None
-    filename = secure_filename(file.filename)
+    filename = _safe_original_filename(file.filename, "foto")
     if "." not in filename:
         raise ValueError("A foto deve ser JPG, JPEG, PNG ou WEBP.")
     ext = filename.rsplit(".", 1)[1].lower()
     if ext not in PROFILE_PHOTO_EXTENSIONS:
         raise ValueError("A foto deve ser JPG, JPEG, PNG ou WEBP.")
+
+    _validate_image_stream(file)
+
     stored = f"profile_{uuid.uuid4().hex}.{ext}"
-    file.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored))
+    path = os.path.join(current_app.config["UPLOAD_FOLDER"], stored)
+    file.save(path)
+    _chmod_private(path)
     return stored
 
 def visible_employees():
@@ -596,8 +723,8 @@ def employee_new():
             return render_template("employee_form.html", managers=managers)
         initial_password = (request.form.get("password") or "").strip()
         point_pin = (request.form.get("point_pin") or "").strip()
-        if len(initial_password) < 8:
-            flash("Defina uma senha provisória de pelo menos 8 caracteres para o primeiro acesso.", "danger")
+        if len(initial_password) < 10:
+            flash("Defina uma senha provisória de pelo menos 10 caracteres para o primeiro acesso.", "danger")
             return render_template("employee_form.html", managers=managers)
         if not (len(point_pin) == 6 and point_pin.isdigit()):
             flash("A senha de ponto deve conter exatamente 6 dígitos numéricos.", "danger")
@@ -772,8 +899,8 @@ def employee_detail(employee_id):
 def employee_reset_password(employee_id):
     emp = db.get_or_404(Employee, employee_id)
     temporary_password = (request.form.get("temporary_password") or "").strip()
-    if len(temporary_password) < 8:
-        flash("A senha provisória deve possuir pelo menos 8 caracteres.", "danger")
+    if len(temporary_password) < 10:
+        flash("A senha provisória deve possuir pelo menos 10 caracteres.", "danger")
         return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#acesso")
     emp.user.set_password(temporary_password)
     emp.user.must_change_password = True
@@ -991,7 +1118,7 @@ def employee_time_clock_add(employee_id):
         return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#controle-ponto")
     dt = datetime.combine(punch_date, punch_time)
     row = TimeClock(employee_id=emp.id, punched_at=dt, kind=kind, source="ajuste_rh",
-                    ip_address=request.headers.get("X-Forwarded-For", request.remote_addr))
+                    ip_address=client_ip())
     db.session.add(row); db.session.flush()
     log_action("incluiu marcação de ponto pelo RH", "time_clock", row.id,
                f"{emp.full_name}; {dt.strftime('%d/%m/%Y %H:%M:%S')}; {kind}; motivo: {reason}")
@@ -1052,16 +1179,23 @@ def clock():
         if not emp.point_pin_hash:
             flash("Sua senha de ponto ainda não foi cadastrada. Procure o RH.", "danger")
             return redirect(url_for("rh.clock"))
+
+        if _pin_is_blocked(emp):
+            flash("Muitas tentativas de PIN. Aguarde 15 minutos antes de tentar novamente.", "danger")
+            return redirect(url_for("rh.clock"))
+
         if not (len(point_pin) == 6 and point_pin.isdigit()) or not emp.check_point_pin(point_pin):
+            _pin_failure(emp)
             log_action("tentativa inválida de registro de ponto", "employee", emp.id, "PIN de ponto inválido.")
             db.session.commit()
             flash("Senha de ponto inválida. O registro não foi realizado.", "danger")
             return redirect(url_for("rh.clock"))
 
+        _pin_success(emp)
         kinds = ["entrada", "saida_intervalo", "retorno", "saida"]
         today_rows = TimeClock.query.filter(TimeClock.employee_id==emp.id, db.func.date(TimeClock.punched_at) == today_local()).order_by(TimeClock.punched_at).all()
         kind = kinds[min(len(today_rows), 3)]
-        row = TimeClock(employee_id=emp.id, kind=kind, ip_address=request.headers.get("X-Forwarded-For", request.remote_addr))
+        row = TimeClock(employee_id=emp.id, kind=kind, ip_address=client_ip())
         db.session.add(row); db.session.flush(); log_action("registrou ponto", "time_clock", row.id, kind); db.session.commit()
         flash(f"Ponto registrado: {kind.replace('_',' ')} às {row.punched_at.strftime('%H:%M:%S')}.", "success")
         return redirect(url_for("rh.clock"))
@@ -1540,6 +1674,12 @@ def payslips_upload_batch():
         flash("O arquivo consolidado precisa estar em PDF.", "danger")
         return redirect(url_for("rh.payslips_manage"))
 
+    try:
+        _validate_pdf_stream(file)
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("rh.payslips_manage"))
+
     employees = Employee.query.filter_by(is_active=True).order_by(Employee.full_name).all()
 
     try:
@@ -1703,8 +1843,20 @@ def file_download(kind, item_id):
                 f"{emp.full_name}; competência {item.month:02d}/{item.year}"
             )
             db.session.commit()
-    else: abort(404)
-    return send_from_directory(current_app.config["UPLOAD_FOLDER"], item.stored_name, as_attachment=False, download_name=item.original_name)
+    else:
+        abort(404)
+
+    response = send_from_directory(
+        current_app.config["UPLOAD_FOLDER"],
+        item.stored_name,
+        as_attachment=False,
+        download_name=item.original_name,
+        conditional=False,
+    )
+    response.headers["Cache-Control"] = "no-store, private, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 
@@ -1910,10 +2062,16 @@ def time_report_acknowledge():
         return redirect(url_for("main.dashboard"))
 
     pin = (request.form.get("point_pin") or "").strip()
+    if _pin_is_blocked(emp):
+        flash("Muitas tentativas de PIN. Aguarde 15 minutos antes de tentar novamente.", "danger")
+        return redirect(url_for("main.dashboard"))
+
     if not re.fullmatch(r"\d{6}", pin) or not emp.check_point_pin(pin):
+        _pin_failure(emp)
         flash("Senha de ponto inválida. A assinatura não foi registrada.", "danger")
         return redirect(url_for("main.dashboard"))
 
+    _pin_success(emp)
     ack = TimeReportAcknowledgement.query.filter_by(
         employee_id=emp.id,
         year=year,

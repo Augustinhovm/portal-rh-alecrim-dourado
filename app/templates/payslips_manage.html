@@ -84,7 +84,7 @@
         </td>
         <td><a target="_blank" rel="noopener" href="{{url_for('rh.file_download',kind='payslip',item_id=p.id)}}">Abrir</a></td>
         <td>
-          <form method="post" action="{{url_for('rh.payslip_delete',payslip_id=p.id)}}" onsubmit="return confirm('Remover este holerite do Portal RH?');">
+          <form method="post" action="{{url_for('rh.payslip_delete',payslip_id=p.id)}}" data-confirm="Remover este holerite do Portal RH?">
             <button type="submit" class="danger-btn">Remover</button>
           </form>
         </td>

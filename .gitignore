@@ -5,3 +5,12 @@ __pycache__/
 instance/
 app/uploads/*
 !app/uploads/.gitkeep
+.env.*
+!.env.example
+!.env.production.example
+uploads/
+*.sqlite
+*.sqlite3
+*.db
+backups/
+*.bak

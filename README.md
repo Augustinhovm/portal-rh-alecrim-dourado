@@ -218,3 +218,7 @@ O RH passa a informar, em cada atestado recebido, a quantidade exata de horas e 
 
 ## V8.4 — Plantões executados e intervalo individual
 O perfil individual do colaborador passa a permitir a configuração de início e fim do intervalo de jornada. Esse período é descontado da jornada prevista nos cálculos mensais. O RH também pode registrar Plantão executado em sábado ou domingo, com duração padrão de 14h. O plantão gera crédito imediato no banco de horas, possui histórico próprio e entra no dashboard, no extrato do banco e no PDF mensal com a descrição Plantão executado. Registros duplicados para o mesmo colaborador/data são bloqueados e a remoção exige justificativa, revertendo automaticamente o crédito.
+
+
+## V8.5 — Hardening de segurança
+A V8.5 reforça autenticação, sessão, CSRF, proteção contra brute force, PIN de ponto, headers HTTP, cache de documentos sensíveis, política de senha, validação real de PDFs/imagens e tratamento seguro de erros. Consulte `SECURITY.md` antes de publicar em produção.

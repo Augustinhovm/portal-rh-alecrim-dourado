@@ -29,6 +29,18 @@ class User(UserMixin, db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+
+class AuthThrottle(db.Model):
+    """Controle persistente de tentativas de autenticação para produção com múltiplos workers."""
+    id = db.Column(db.Integer, primary_key=True)
+    key_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    failures = db.Column(db.Integer, nullable=False, default=0)
+    window_started_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    blocked_until = db.Column(db.DateTime)
+    last_failure_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, default=now_local, onupdate=now_local, nullable=False)
+
+
 class Employee(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), unique=True, nullable=False)

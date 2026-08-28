@@ -44,9 +44,13 @@ def create_app(test_config=None):
             os.getenv("UPLOAD_FOLDER", os.path.join(app.root_path, "uploads"))
         ),
         MAX_CONTENT_LENGTH=int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024,
+        MAX_FORM_MEMORY_SIZE=2 * 1024 * 1024,
+        MAX_FORM_PARTS=120,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=production,
+        SESSION_COOKIE_NAME="__Host-portalrh" if production else "portalrh_session",
+        SESSION_REFRESH_EACH_REQUEST=True,
         REMEMBER_COOKIE_HTTPONLY=True,
         REMEMBER_COOKIE_SAMESITE="Lax",
         REMEMBER_COOKIE_SECURE=production,
@@ -119,6 +123,14 @@ def create_app(test_config=None):
             if not expected or not received or not secrets.compare_digest(expected, received):
                 abort(400, description="Sessão de segurança inválida. Atualize a página e tente novamente.")
 
+            # Segunda barreira contra requisições cross-site em produção.
+            if app.config["PRODUCTION"]:
+                origin = request.headers.get("Origin")
+                if origin:
+                    expected_origin = request.host_url.rstrip("/")
+                    if origin.rstrip("/") != expected_origin:
+                        abort(403)
+
         if current_user.is_authenticated:
             session.permanent = True
             allowed = {"auth.change_password", "auth.logout", "auth.login", "static"}
@@ -130,26 +142,47 @@ def create_app(test_config=None):
     @app.after_request
     def set_security_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), payment=()"
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), "
+            "bluetooth=(), browsing-topics=()"
         )
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-        # O Portal ainda possui alguns scripts/estilos inline; CSP compatível com a V8.0.
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "img-src 'self' data: blob:; "
             "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
             "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "media-src 'none'; "
             "object-src 'none'; "
+            "worker-src 'none'; "
             "base-uri 'self'; "
-            "frame-ancestors 'self'; "
-            "form-action 'self'"
+            "frame-ancestors 'none'; "
+            "form-action 'self'; "
+            "upgrade-insecure-requests"
+            if app.config["PRODUCTION"]
+            else
+            "default-src 'self'; img-src 'self' data: blob:; "
+            "style-src 'self' 'unsafe-inline'; script-src 'self'; "
+            "font-src 'self' data:; object-src 'none'; base-uri 'self'; "
+            "frame-ancestors 'none'; form-action 'self'"
         )
+
+        # Dados de RH não devem permanecer em caches compartilhados ou histórico intermediário.
+        if request.path != "/health":
+            response.headers["Cache-Control"] = "no-store, private, max-age=0, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+
         if app.config["PRODUCTION"]:
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=63072000; includeSubDomains; preload"
+            )
         return response
 
     @app.route("/health")
@@ -160,6 +193,45 @@ def create_app(test_config=None):
             return {"status": "ok"}, 200
         except Exception:
             return {"status": "degraded"}, 503
+
+    @app.errorhandler(400)
+    def bad_request(_error):
+        if request.path.startswith("/health"):
+            return {"status": "bad_request"}, 400
+        return (
+            "<h1>Solicitação inválida</h1>"
+            "<p>A requisição foi bloqueada por uma regra de segurança. "
+            "Atualize a página e tente novamente.</p>",
+            400,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    @app.errorhandler(403)
+    def forbidden(_error):
+        return (
+            "<h1>Acesso não autorizado</h1>"
+            "<p>Seu usuário não possui permissão para acessar este recurso.</p>",
+            403,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    @app.errorhandler(404)
+    def not_found(_error):
+        return (
+            "<h1>Página não encontrada</h1>",
+            404,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    @app.errorhandler(500)
+    def internal_error(_error):
+        db.session.rollback()
+        return (
+            "<h1>Não foi possível concluir esta operação</h1>"
+            "<p>O erro foi interrompido com segurança. Tente novamente ou contate o RH.</p>",
+            500,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
 
     @app.errorhandler(413)
     def too_large(_error):

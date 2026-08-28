@@ -31,6 +31,11 @@ def log_action(action, entity, entity_id=None, details=None):
         entity=entity,
         entity_id=entity_id,
         details=details,
-        ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+        ip_address=client_ip(),
     )
     db.session.add(log)
+
+
+def client_ip():
+    """IP de auditoria após ProxyFix; evita confiar diretamente em cabeçalhos arbitrários."""
+    return request.remote_addr or "unknown"
