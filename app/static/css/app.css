@@ -2097,3 +2097,41 @@ body.portal-login .auth-card {
   .closing-flow { grid-template-columns: 1fr; }
   .signature-notice-actions { margin-left: 0; }
 }
+
+
+/* =========================================================
+   V8.3 - Abono por atestado
+   ========================================================= */
+.certificate-allowance-cell {
+  min-width: 310px;
+}
+.allowance-form {
+  display: grid;
+  gap: 8px;
+}
+.allowance-current {
+  display: grid;
+  gap: 3px;
+}
+.allowance-time-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.allowance-time-inputs label {
+  font-size: .76rem;
+  font-weight: 800;
+}
+.allowance-time-inputs input,
+.allowance-form > input {
+  min-height: 40px;
+}
+.allowance-form button {
+  min-height: 40px;
+}
+
+@media (max-width: 760px) {
+  .certificate-allowance-cell {
+    min-width: 275px;
+  }
+}

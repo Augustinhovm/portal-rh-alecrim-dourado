@@ -24,6 +24,7 @@
         <th>Colaborador</th>
         <th>Previsto</th>
         <th>Trabalhado</th>
+        <th>Abonado</th>
         <th>Saldo jornada</th>
         <th>Pendências</th>
         <th>Fechamento</th>
@@ -40,6 +41,7 @@
         </td>
         <td>{{row.summary.expected|minutes_hhmm}}</td>
         <td>{{row.summary.worked|minutes_hhmm}}</td>
+        <td><strong>{{row.summary.excused|minutes_hhmm}}</strong></td>
         <td><strong class="{% if row.summary.balance >= 0 %}positive{% else %}negative{% endif %}">{{row.summary.balance|minutes_hhmm}}</strong></td>
         <td>
           {% if row.summary.incomplete %}

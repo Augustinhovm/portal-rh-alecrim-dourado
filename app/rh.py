@@ -16,7 +16,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, TimeClock, MedicalCertificate, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, TimeClock, MedicalCertificate, MedicalCertificateAllowance, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action
 from .timezone import now_local, today_local
 
@@ -258,6 +258,46 @@ def _expected_daily_minutes(emp):
         return max(minutes, 0)
     return int(round(float(emp.weekly_hours or 0) * 60 / 5))
 
+
+def _certificate_allowance_by_day(emp, range_start, range_end):
+    """
+    Distribui o total de horas abonadas de cada atestado pelos dias úteis cobertos,
+    limitado à jornada diária prevista. O abono justifica jornada; não cria crédito
+    de banco de horas.
+    """
+    expected = _expected_daily_minutes(emp)
+    result = {}
+
+    allowances = (MedicalCertificateAllowance.query
+        .filter(MedicalCertificateAllowance.employee_id == emp.id)
+        .all())
+
+    for allowance in allowances:
+        cert = allowance.certificate
+        if not cert or cert.status == "devolvido":
+            continue
+
+        remaining = max(int(allowance.minutes or 0), 0)
+        if remaining <= 0:
+            continue
+
+        cert_start = cert.start_date
+        cert_end = cert.start_date + timedelta(days=max(int(cert.days or 1) - 1, 0))
+        current = cert_start
+
+        # A distribuição começa no início do atestado, mesmo que o relatório solicitado
+        # comece no mês seguinte. Isso preserva a ordem correta em atestados que cruzam meses.
+        while current <= cert_end and remaining > 0:
+            if current.weekday() < 5 and current >= emp.admission_date:
+                allocation = min(remaining, expected)
+                if range_start <= current <= range_end:
+                    result[current] = result.get(current, 0) + allocation
+                remaining -= allocation
+            current += timedelta(days=1)
+
+    return result
+
+
 def _month_clock_summary(emp, year, month):
     first = date(year, month, 1)
     last = date(year, month, calendar.monthrange(year, month)[1])
@@ -266,37 +306,57 @@ def _month_clock_summary(emp, year, month):
         func.date(TimeClock.punched_at) >= first,
         func.date(TimeClock.punched_at) <= last
     ).order_by(TimeClock.punched_at.asc()).all())
+
     grouped = {}
     for row in rows:
         grouped.setdefault(row.punched_at.date(), []).append(row)
+
     expected = _expected_daily_minutes(emp)
+    allowance_by_day = _certificate_allowance_by_day(emp, first, last)
+
     worked = 0
+    excused = 0
+    excused_applied = 0
     expected_total = 0
     incomplete = 0
     balance = 0
+
     for day in range(1, last.day + 1):
         d = date(year, month, day)
         if d.weekday() >= 5 or d < emp.admission_date or d > today_local():
             continue
+
         day_rows = grouped.get(d, [])
-        # Atestado cobre o dia: não gera déficit de jornada.
-        covered = MedicalCertificate.query.filter(
-            MedicalCertificate.employee_id == emp.id,
-            MedicalCertificate.start_date <= d
-        ).all()
-        is_cert = any(c.start_date + timedelta(days=max(int(c.days or 1)-1,0)) >= d for c in covered)
-        if is_cert:
-            continue
         expected_total += expected
+
         wm = _worked_minutes_for_day(day_rows)
         worked += wm
+
+        registered_excused = int(allowance_by_day.get(d, 0) or 0)
+        excused += registered_excused
+
+        # O atestado cobre somente o déficit da jornada. Nunca gera saldo positivo.
+        applied_excused = min(registered_excused, max(expected - wm, 0))
+        excused_applied += applied_excused
+
         kinds = {x.kind for x in day_rows}
-        if day_rows and not {"entrada", "saida"}.issubset(kinds):
-            incomplete += 1
-        if not day_rows:
-            incomplete += 1
-        balance += wm - expected
-    return {"worked": worked, "expected": expected_total, "balance": balance, "incomplete": incomplete, "rows": rows}
+        accounted = wm + applied_excused
+
+        if accounted < expected:
+            if not day_rows or not {"entrada", "saida"}.issubset(kinds):
+                incomplete += 1
+
+        balance += accounted - expected
+
+    return {
+        "worked": worked,
+        "excused": excused,
+        "excused_applied": excused_applied,
+        "expected": expected_total,
+        "balance": balance,
+        "incomplete": incomplete,
+        "rows": rows,
+    }
 
 def _add_years(value, years):
     """Adiciona anos preservando mês/dia; 29/02 vira 28/02 quando necessário."""
@@ -895,6 +955,11 @@ def _certificate_cover_pdf(cert):
         [Paragraph("<b>Dias</b>", normal), Paragraph(str(cert.days), normal)],
         [Paragraph("<b>Data de envio ao Portal</b>", normal), Paragraph(cert.uploaded_at.strftime("%d/%m/%Y %H:%M"), normal)],
         [Paragraph("<b>Status</b>", normal), Paragraph(_pdf_text(cert.status.title()), normal)],
+        [Paragraph("<b>Horas abonadas pelo RH</b>", normal),
+         Paragraph(
+             _format_minutes(cert.allowance.minutes) if cert.allowance else "Aguardando definição do RH",
+             normal
+         )],
         [Paragraph("<b>Arquivo original</b>", normal), Paragraph(_pdf_text(cert.original_name), normal)],
         [Paragraph("<b>Observação</b>", normal), Paragraph(_pdf_text(cert.note or "—"), normal)],
     ]
@@ -1078,6 +1143,100 @@ def certificates_manage():
         batch_start_date=batch_start_date,
         batch_end_date=batch_end_date,
     )
+
+
+
+@bp.route("/certificates/<int:certificate_id>/allowance", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def certificate_allowance(certificate_id):
+    cert = db.get_or_404(MedicalCertificate, certificate_id)
+    emp = cert.employee
+
+    try:
+        hours = max(int(request.form.get("hours") or 0), 0)
+        minutes_part = max(min(int(request.form.get("minutes") or 0), 59), 0)
+    except (TypeError, ValueError):
+        flash("Informe uma quantidade válida de horas e minutos.", "danger")
+        return redirect(request.referrer or url_for("rh.certificates_manage"))
+
+    total = hours * 60 + minutes_part
+    note = (request.form.get("allowance_note") or "").strip() or None
+
+    # Máximo operacional: jornada prevista multiplicada pelos dias úteis abrangidos.
+    expected_daily = _expected_daily_minutes(emp)
+    cert_end = cert.start_date + timedelta(days=max(int(cert.days or 1) - 1, 0))
+    workdays = 0
+    cursor = cert.start_date
+    while cursor <= cert_end:
+        if cursor.weekday() < 5 and cursor >= emp.admission_date:
+            workdays += 1
+        cursor += timedelta(days=1)
+    max_minutes = expected_daily * workdays
+
+    if total > max_minutes:
+        flash(
+            f"O abono informado excede a jornada prevista para os dias úteis do atestado "
+            f"({max_minutes // 60:02d}:{max_minutes % 60:02d}).",
+            "danger",
+        )
+        return redirect(request.referrer or url_for("rh.certificates_manage"))
+
+    existing = MedicalCertificateAllowance.query.filter_by(certificate_id=cert.id).first()
+
+    if total == 0:
+        if existing:
+            db.session.delete(existing)
+            log_action(
+                "removeu abono por atestado",
+                "medical_certificate_allowance",
+                existing.id,
+                f"{emp.full_name}; atestado {cert.id}; início {cert.start_date.strftime('%d/%m/%Y')}",
+            )
+            db.session.commit()
+            flash("Abono por atestado removido.", "success")
+        else:
+            flash("Esse atestado não possuía horas abonadas.", "warning")
+        return redirect(request.referrer or url_for("rh.certificates_manage"))
+
+    if existing:
+        old_minutes = int(existing.minutes or 0)
+        existing.minutes = total
+        existing.note = note
+        existing.approved_by = current_user.id
+        existing.updated_at = now_local()
+        item = existing
+        action = "alterou abono por atestado"
+        detail_change = f"{old_minutes} min -> {total} min"
+    else:
+        item = MedicalCertificateAllowance(
+            certificate_id=cert.id,
+            employee_id=emp.id,
+            minutes=total,
+            note=note,
+            approved_by=current_user.id,
+        )
+        db.session.add(item)
+        db.session.flush()
+        action = "registrou abono por atestado"
+        detail_change = f"{total} min"
+
+    log_action(
+        action,
+        "medical_certificate_allowance",
+        item.id,
+        (
+            f"{emp.full_name}; atestado {cert.id}; início {cert.start_date.strftime('%d/%m/%Y')}; "
+            f"abono {detail_change}; observação: {note or '-'}"
+        ),
+    )
+    db.session.commit()
+    flash(
+        f"Abono de {total // 60:02d}:{total % 60:02d} registrado. "
+        "As horas passarão a compor a jornada justificada no fechamento mensal.",
+        "success",
+    )
+    return redirect(request.referrer or url_for("rh.certificates_manage"))
 
 
 @bp.route("/certificates/<int:certificate_id>/status", methods=["POST"])
@@ -1702,6 +1861,8 @@ def employee_time_report_pdf(employee_id):
     for row in rows:
         grouped.setdefault(row.punched_at.date(), []).append(row)
 
+    allowance_by_day = _certificate_allowance_by_day(emp, first_day, last_day)
+
     # Movimentações aprovadas no período: somente solicitações efetivamente aprovadas
     # entram no espelho mensal e no saldo apresentado ao RH.
     approved_requests = (Request.query
@@ -1784,9 +1945,10 @@ def employee_time_report_pdf(employee_id):
     ]))
     story.extend([info_table, Spacer(1, 4 * mm)])
 
-    header = ["Data", "Entrada", "Saída intervalo", "Retorno", "Saída", "Horas trabalhadas", "Horas extras", "Outras marcações / observações"]
+    header = ["Data", "Entrada", "Saída intervalo", "Retorno", "Saída", "Horas trabalhadas", "Abono atestado", "Horas extras", "Outras marcações / observações"]
     data = [[Paragraph(f"<b>{h}</b>", small_style) for h in header]]
     total_worked_minutes = 0
+    total_excused_minutes = 0
 
     for day in range(1, last_day.day + 1):
         current_day = date(year, month, day)
@@ -1815,6 +1977,12 @@ def employee_time_report_pdf(employee_id):
 
         worked_minutes = _worked_minutes_for_day(day_rows)
         total_worked_minutes += worked_minutes
+
+        excused_minutes = int(allowance_by_day.get(current_day, 0) or 0)
+        total_excused_minutes += excused_minutes
+        if excused_minutes:
+            extras.append(f"Abono por atestado: {_format_minutes(excused_minutes)}")
+
         overtime_minutes = overtime_by_day.get(current_day, 0)
         bank_use_minutes = bank_use_by_day.get(current_day, 0)
         if bank_use_minutes:
@@ -1826,17 +1994,18 @@ def employee_time_report_pdf(employee_id):
             first_or_dash("entrada"), first_or_dash("saida_intervalo"),
             first_or_dash("retorno"), first_or_dash("saida"),
             _format_minutes(worked_minutes) if worked_minutes else "-",
+            _format_minutes(excused_minutes) if excused_minutes else "-",
             _format_minutes(overtime_minutes) if overtime_minutes else "-",
             Paragraph(_pdf_text("; ".join(extras) if extras else ""), note_style),
         ])
 
-    table = Table(data, repeatRows=1, colWidths=[31*mm, 25*mm, 29*mm, 25*mm, 25*mm, 30*mm, 27*mm, 58*mm])
+    table = Table(data, repeatRows=1, colWidths=[27*mm, 22*mm, 25*mm, 22*mm, 22*mm, 27*mm, 27*mm, 24*mm, 54*mm])
     table_style = [
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9ECEF")),
         ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#C8CDD2")),
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("ALIGN", (1,1), (6,-1), "CENTER"),
-        ("FONTNAME", (0,1), (6,-1), "Helvetica"),
+        ("ALIGN", (1,1), (7,-1), "CENTER"),
+        ("FONTNAME", (0,1), (7,-1), "Helvetica"),
         ("FONTSIZE", (0,0), (-1,-1), 7.5),
         ("TOPPADDING", (0,0), (-1,-1), 3.2),
         ("BOTTOMPADDING", (0,0), (-1,-1), 3.2),
@@ -1860,10 +2029,10 @@ def employee_time_report_pdf(employee_id):
     story.append(Paragraph("<b>RESUMO MENSAL</b>", small_style))
     summary_data = [
         [Paragraph("Horas trabalhadas registradas", small_bold), _format_minutes(total_worked_minutes),
-         Paragraph("Horas extras aprovadas", small_bold), _format_minutes(total_overtime)],
-        [Paragraph("Créditos manuais de banco", small_bold), _format_minutes(positive_adjustments),
+         Paragraph("Horas abonadas por atestado", small_bold), _format_minutes(total_excused_minutes)],
+        [Paragraph("Horas extras aprovadas", small_bold), _format_minutes(total_overtime),
          Paragraph("Horas descontadas / banco utilizado", small_bold), _format_minutes(total_debits)],
-        [Paragraph("Total de créditos no mês", small_bold), _format_minutes(total_credits),
+        [Paragraph("Créditos manuais de banco", small_bold), _format_minutes(positive_adjustments),
          Paragraph("Saldo do banco no mês", small_bold), _format_minutes(month_balance)],
     ]
     summary_table = Table(summary_data, colWidths=[60*mm, 35*mm, 70*mm, 35*mm])

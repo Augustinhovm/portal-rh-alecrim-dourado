@@ -219,7 +219,7 @@
 </div>
 {% endif %}
 
-<div class="panel"><h2>Atestados</h2><div class="table-wrap"><table><tr><th>Início</th><th>Dias</th><th>Status</th>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<th>Arquivo</th>{% endif %}</tr>{% for c in certs %}<tr><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td>{{c.status}}</td>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<td><a href="{{url_for('rh.file_download',kind='certificate',item_id=c.id)}}">Abrir</a></td>{% endif %}</tr>{% else %}<tr><td colspan="4">Nenhum atestado.</td></tr>{% endfor %}</table></div></div>
+<div class="panel"><h2>Atestados</h2><div class="table-wrap"><table><tr><th>Início</th><th>Dias</th><th>Horas abonadas</th><th>Status</th>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<th>Arquivo</th>{% endif %}</tr>{% for c in certs %}<tr><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td>{% if c.allowance %}<strong>{{c.allowance.minutes|minutes_hhmm}}</strong>{% else %}<span class="badge pending">Não definido</span>{% endif %}</td><td>{{c.status}}</td>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<td><a href="{{url_for('rh.file_download',kind='certificate',item_id=c.id)}}">Abrir</a></td>{% endif %}</tr>{% else %}<tr><td colspan="5">Nenhum atestado.</td></tr>{% endfor %}</table></div></div>
 
 
 <div class="panel" id="ferias">

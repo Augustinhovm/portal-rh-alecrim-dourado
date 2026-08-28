@@ -93,6 +93,32 @@ class MedicalCertificate(db.Model):
     status = db.Column(db.String(30), default="recebido", nullable=False)
     employee = db.relationship("Employee")
 
+
+class MedicalCertificateAllowance(db.Model):
+    """Horas justificadas pelo RH em razão de um atestado recebido."""
+    id = db.Column(db.Integer, primary_key=True)
+    certificate_id = db.Column(
+        db.Integer,
+        db.ForeignKey("medical_certificate.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    minutes = db.Column(db.Integer, nullable=False, default=0)
+    note = db.Column(db.String(255))
+    approved_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    updated_at = db.Column(db.DateTime, default=now_local, onupdate=now_local, nullable=False)
+
+    certificate = db.relationship(
+        "MedicalCertificate",
+        backref=db.backref("allowance", uselist=False, cascade="all, delete-orphan"),
+    )
+    employee = db.relationship("Employee")
+    approver = db.relationship("User", foreign_keys=[approved_by])
+
+
 class Request(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)

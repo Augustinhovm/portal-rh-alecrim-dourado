@@ -210,3 +210,7 @@ Reforça o vínculo entre holerite, colaborador e usuário de acesso ao Portal. 
 
 ## V8.2 — Fechamento mensal com assinatura eletrônica
 O fechamento mensal passa a exibir no RH o PDF fechado, a situação de leitura do colaborador, a data/hora da ciência e o PDF assinado. O colaborador precisa abrir o relatório, confirmar que o conferiu e autenticar a assinatura com sua senha pessoal de ponto de seis dígitos. O PDF assinado contém um bloco de assinatura eletrônica com nome, usuário, data/hora, identificador SHA-256 derivado do registro e IP registrado na auditoria. Trata-se de assinatura eletrônica interna do Portal RH, não de certificado digital ICP-Brasil.
+
+
+## V8.3 — Abono de horas por atestado
+O RH passa a informar, em cada atestado recebido, a quantidade exata de horas e minutos a serem abonados. O abono fica vinculado ao atestado e ao colaborador, aparece para o colaborador, entra no fechamento mensal e é exibido no PDF de ponto/banco de horas. As horas abonadas justificam a jornada prevista, mas não geram crédito de banco de horas. Em atestados com vários dias, o total informado é distribuído cronologicamente pelos dias úteis cobertos, limitado à jornada diária prevista.

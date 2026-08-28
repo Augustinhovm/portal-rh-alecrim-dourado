@@ -44,7 +44,7 @@
 <div class="panel">
   <div class="heading"><div><h2>Documentos</h2><p class="muted">{{rows|length}} registro(s) encontrado(s).</p></div></div>
   <div class="table-wrap"><table>
-    <tr><th>Colaborador</th><th>Início</th><th>Dias</th><th>Observação</th><th>Enviado em</th><th>Status</th><th>Arquivo</th><th>Conferência RH</th></tr>
+    <tr><th>Colaborador</th><th>Início</th><th>Dias</th><th>Observação</th><th>Enviado em</th><th>Status</th><th>Arquivo</th><th>Abono por atestado</th><th>Conferência RH</th></tr>
     {% for c in rows %}
     <tr>
       <td><strong>{{c.employee.full_name}}</strong><br><small class="muted">{{c.employee.job_title}} · {{c.employee.project}}</small></td>
@@ -54,6 +54,29 @@
       <td>{{c.uploaded_at.strftime('%d/%m/%Y %H:%M')}}</td>
       <td><span class="badge {{c.status}}">{{c.status|title}}</span></td>
       <td><a class="btn secondary" href="{{url_for('rh.file_download',kind='certificate',item_id=c.id)}}" target="_blank" rel="noopener">Abrir arquivo</a></td>
+      <td class="certificate-allowance-cell">
+        <form method="post" action="{{url_for('rh.certificate_allowance',certificate_id=c.id)}}" class="allowance-form">
+          <div class="allowance-current">
+            {% if c.allowance %}
+              <span class="badge approved">Abonado {{c.allowance.minutes|minutes_hhmm}}</span>
+              {% if c.allowance.note %}<small>{{c.allowance.note}}</small>{% endif %}
+            {% else %}
+              <span class="badge pending">Abono não definido</span>
+            {% endif %}
+          </div>
+          <div class="allowance-time-inputs">
+            <label>Horas
+              <input type="number" name="hours" min="0" value="{{(c.allowance.minutes // 60) if c.allowance else 0}}" required>
+            </label>
+            <label>Minutos
+              <input type="number" name="minutes" min="0" max="59" value="{{(c.allowance.minutes % 60) if c.allowance else 0}}" required>
+            </label>
+          </div>
+          <input name="allowance_note" value="{{c.allowance.note if c.allowance else ''}}" placeholder="Observação do abono (opcional)">
+          <button type="submit">Salvar abono</button>
+          <small class="muted">Informe 0h00 para remover o abono.</small>
+        </form>
+      </td>
       <td>
         <form method="post" action="{{url_for('rh.certificate_status',certificate_id=c.id)}}" class="status-form">
           <select name="status" aria-label="Status do atestado">
@@ -63,7 +86,7 @@
         </form>
       </td>
     </tr>
-    {% else %}<tr><td colspan="8">Nenhum atestado encontrado.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="9">Nenhum atestado encontrado.</td></tr>{% endfor %}
   </table></div>
 </div>
 {% endblock %}
