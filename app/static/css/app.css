@@ -3679,3 +3679,55 @@ code {
     display: none;
   }
 }
+
+
+/* V9.1.2 - Nome abaixo da foto de perfil */
+.topbar-right {
+  align-items: center !important;
+}
+
+.topbar-profile-stack {
+  order: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 120px;
+  max-width: 210px;
+  text-align: center;
+}
+
+.topbar-profile-stack .top-profile-avatar {
+  order: initial;
+  margin: 0 auto !important;
+}
+
+.topbar-profile-stack .topbar-user {
+  order: initial;
+  width: 100%;
+  margin: 0 !important;
+  line-height: 1.15;
+}
+
+.topbar-profile-stack .topbar-user strong {
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-profile-stack .topbar-user small {
+  margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+  .topbar-profile-stack {
+    min-width: 46px;
+    max-width: 70px;
+  }
+
+  .topbar-profile-stack .topbar-user {
+    display: none;
+  }
+}

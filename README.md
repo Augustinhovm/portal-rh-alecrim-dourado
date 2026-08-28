@@ -262,3 +262,7 @@ Adiciona uma Central de Notificações dinâmica com contador no cabeçalho, avi
 
 ## V9.1.1 — Correção do cabeçalho
 Corrige o alinhamento da área de usuário no cabeçalho. O sino de notificações, a foto do colaborador e a identificação passam a permanecer na mesma linha, na ordem: notificações → avatar → nome/perfil.
+
+
+## V9.1.2 — Perfil no cabeçalho
+O nome e a função do colaborador passam a ficar centralizados abaixo da foto de perfil, mantendo o sino de notificações à esquerda.

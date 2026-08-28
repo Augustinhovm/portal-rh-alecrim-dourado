@@ -28,26 +28,28 @@
       {% endif %}
     </a>
     {% if current_user.employee %}
-      <a class="top-profile-avatar" href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}" title="{{ current_user.employee.full_name }}">
-        {% if current_user.employee.profile_photo %}
-          <img
-            class="top-profile-avatar-image"
-            src="{{url_for('rh.employee_photo', employee_id=current_user.employee.id, v=current_user.employee.profile_photo)}}"
-            alt="Foto de {{ current_user.employee.full_name }}"
-            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
-          >
-          <span class="top-profile-avatar-fallback" style="display:none;">{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
-        {% else %}
-          <span class="top-profile-avatar-fallback">{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
-        {% endif %}
-      </a>
-      <div class="topbar-user">
-        <strong>{{ current_user.employee.full_name }}</strong>
-        <small>
-          {% if current_user.role=='admin' %}RH / Administrador
-          {% elif current_user.role=='manager' %}Responsável de área
-          {% else %}Colaborador{% endif %}
-        </small>
+      <div class="topbar-profile-stack">
+        <a class="top-profile-avatar" href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}" title="{{ current_user.employee.full_name }}">
+          {% if current_user.employee.profile_photo %}
+            <img
+              class="top-profile-avatar-image"
+              src="{{url_for('rh.employee_photo', employee_id=current_user.employee.id, v=current_user.employee.profile_photo)}}"
+              alt="Foto de {{ current_user.employee.full_name }}"
+              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+            >
+            <span class="top-profile-avatar-fallback" style="display:none;">{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
+          {% else %}
+            <span class="top-profile-avatar-fallback">{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
+          {% endif %}
+        </a>
+        <div class="topbar-user">
+          <strong>{{ current_user.employee.full_name }}</strong>
+          <small>
+            {% if current_user.role=='admin' %}RH / Administrador
+            {% elif current_user.role=='manager' %}Responsável de área
+            {% else %}Colaborador{% endif %}
+          </small>
+        </div>
       </div>
     {% else %}
       <div class="topbar-user"><strong>Administrador</strong><small>Portal RH</small></div>
