@@ -41,6 +41,22 @@ class AuthThrottle(db.Model):
     updated_at = db.Column(db.DateTime, default=now_local, onupdate=now_local, nullable=False)
 
 
+
+class SecurityEvent(db.Model):
+    """Eventos de segurança que precisam existir independentemente de um usuário autenticado."""
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(60), nullable=False, index=True)
+    severity = db.Column(db.String(20), nullable=False, default="info", index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), index=True)
+    ip_address = db.Column(db.String(64), index=True)
+    details = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False, index=True)
+
+    user = db.relationship("User", foreign_keys=[user_id])
+    employee = db.relationship("Employee", foreign_keys=[employee_id])
+
+
 class Employee(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), unique=True, nullable=False)

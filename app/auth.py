@@ -7,7 +7,7 @@ from datetime import timedelta
 import hashlib
 import re
 from werkzeug.security import generate_password_hash, check_password_hash
-from .security import log_action, client_ip
+from .security import log_action, log_security_event, client_ip
 
 LOGIN_WINDOW_MINUTES = 15
 LOGIN_MAX_FAILURES = 6
@@ -58,9 +58,23 @@ def _record_login_failure(key_hash):
     row.failures += 1
     row.last_failure_at = now
 
+    severity = "warning"
     if row.failures >= LOGIN_MAX_FAILURES:
         row.blocked_until = now + timedelta(minutes=LOGIN_BLOCK_MINUTES)
+        severity = "critical"
 
+    log_security_event(
+        "login_failed" if severity == "warning" else "login_blocked",
+        severity=severity,
+        details=(
+            f"Tentativa de login recusada. Falhas na janela atual: {row.failures}. "
+            + (
+                f"Bloqueado até {row.blocked_until.strftime('%d/%m/%Y %H:%M:%S')}."
+                if row.blocked_until else
+                "Ainda não bloqueado."
+            )
+        ),
+    )
     db.session.commit()
 
 
@@ -95,6 +109,12 @@ def login():
         key = _login_key(email)
 
         if _is_login_blocked(key):
+            log_security_event(
+                "login_attempt_while_blocked",
+                severity="critical",
+                details="Nova tentativa de autenticação recebida durante período de bloqueio.",
+            )
+            db.session.commit()
             flash("Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.", "danger")
             return render_template("login.html"), 429
 
@@ -114,6 +134,13 @@ def login():
             login_user(user, remember=False, fresh=True)
             session.permanent = True
             log_action("login realizado", "user", user.id, "Autenticação concluída com sucesso.")
+            log_security_event(
+                "login_success",
+                severity="info",
+                user=user,
+                employee=user.employee,
+                details="Autenticação concluída com sucesso.",
+            )
             db.session.commit()
             if user.must_change_password:
                 flash("Por segurança, defina sua senha pessoal antes de continuar.", "info")
@@ -124,6 +151,16 @@ def login():
 @bp.route("/logout", methods=["POST"])
 @login_required
 def logout():
+    user = current_user if current_user.is_authenticated else None
+    if user:
+        log_security_event(
+            "logout",
+            severity="info",
+            user=user,
+            employee=user.employee,
+            details="Sessão encerrada pelo usuário.",
+        )
+        db.session.commit()
     logout_user()
     session.clear()
     return redirect(url_for("auth.login"))
@@ -161,6 +198,13 @@ def change_password():
         current_user.must_change_password = False
         current_user.password_changed_at = now_local()
         log_action("alterou senha no primeiro acesso", "user", current_user.id, "Senha pessoal definida pelo usuário.")
+        log_security_event(
+            "password_changed",
+            severity="info",
+            user=current_user,
+            employee=current_user.employee,
+            details="Usuário definiu/alterou sua senha pessoal.",
+        )
         db.session.commit()
         flash("Senha pessoal criada com sucesso.", "success")
         return redirect(url_for("main.dashboard"))

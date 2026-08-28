@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+{% block title %}Central de Segurança · Portal RH{% endblock %}
+{% block content %}
+<div class="heading security-heading">
+  <div>
+    <span class="security-eyebrow">ADMINISTRAÇÃO E PROTEÇÃO</span>
+    <h1>Central de Segurança</h1>
+    <p class="muted">Acompanhe autenticações, bloqueios, acessos a documentos sensíveis e alterações críticas do Portal RH.</p>
+  </div>
+  <div class="security-status">
+    {% if blocked_rows or critical_7d %}
+      <span class="security-status-dot warning"></span>
+      <div><strong>Atenção necessária</strong><small>{{critical_7d}} evento(s) crítico(s) nos últimos 7 dias</small></div>
+    {% else %}
+      <span class="security-status-dot ok"></span>
+      <div><strong>Sem bloqueios críticos ativos</strong><small>Última verificação: {{now.strftime('%d/%m/%Y %H:%M')}}</small></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="security-kpis">
+  <div class="security-kpi">
+    <span>Logins bem-sucedidos</span>
+    <strong>{{successful_logins_24h}}</strong>
+    <small>últimas 24 horas</small>
+  </div>
+  <div class="security-kpi {% if login_failures_24h %}security-kpi-alert{% endif %}">
+    <span>Tentativas de login recusadas</span>
+    <strong>{{login_failures_24h}}</strong>
+    <small>últimas 24 horas</small>
+  </div>
+  <div class="security-kpi {% if pin_failures_24h %}security-kpi-alert{% endif %}">
+    <span>Tentativas de PIN recusadas</span>
+    <strong>{{pin_failures_24h}}</strong>
+    <small>últimas 24 horas</small>
+  </div>
+  <div class="security-kpi">
+    <span>Acessos a arquivos sensíveis</span>
+    <strong>{{sensitive_access_24h}}</strong>
+    <small>últimas 24 horas</small>
+  </div>
+  <div class="security-kpi">
+    <span>Usuários do Portal</span>
+    <strong>{{active_users}}</strong>
+    <small>{{inactive_users}} inativo(s)</small>
+  </div>
+  <div class="security-kpi {% if blocked_rows %}security-kpi-critical{% endif %}">
+    <span>Bloqueios ativos</span>
+    <strong>{{blocked_rows|length}}</strong>
+    <small>login/PIN</small>
+  </div>
+</div>
+
+{% if blocked_rows %}
+<div class="panel security-critical-panel">
+  <div class="section-heading">
+    <div>
+      <h2>Bloqueios ativos</h2>
+      <p class="muted">Proteções automáticas que estão impedindo novas tentativas neste momento.</p>
+    </div>
+    <span class="badge pending">{{blocked_rows|length}} ativo(s)</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Falhas acumuladas</th><th>Última tentativa</th><th>Bloqueado até</th><th>Identificador interno</th></tr>
+      {% for row in blocked_rows %}
+      <tr>
+        <td><strong>{{row.failures}}</strong></td>
+        <td>{{row.last_failure_at.strftime('%d/%m/%Y %H:%M:%S') if row.last_failure_at else '—'}}</td>
+        <td><strong>{{row.blocked_until.strftime('%d/%m/%Y %H:%M:%S')}}</strong></td>
+        <td><code>{{row.key_hash[:16]}}…</code></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Eventos de segurança</h2>
+      <p class="muted">Eventos produzidos pela camada de proteção do Portal.</p>
+    </div>
+  </div>
+
+  <form method="get" class="security-filters">
+    <label>Período
+      <select name="days">
+        <option value="1" {% if days==1 %}selected{% endif %}>Últimas 24 horas</option>
+        <option value="7" {% if days==7 %}selected{% endif %}>Últimos 7 dias</option>
+        <option value="30" {% if days==30 %}selected{% endif %}>Últimos 30 dias</option>
+        <option value="90" {% if days==90 %}selected{% endif %}>Últimos 90 dias</option>
+      </select>
+    </label>
+    <label>Severidade
+      <select name="severity">
+        <option value="">Todas</option>
+        <option value="info" {% if severity=='info' %}selected{% endif %}>Informativo</option>
+        <option value="warning" {% if severity=='warning' %}selected{% endif %}>Atenção</option>
+        <option value="critical" {% if severity=='critical' %}selected{% endif %}>Crítico</option>
+      </select>
+    </label>
+    <label>Tipo
+      <select name="event_type">
+        <option value="">Todos</option>
+        {% for value in event_types %}
+          <option value="{{value}}" {% if selected_event_type==value %}selected{% endif %}>{{value.replace('_',' ')|title}}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="security-filter-action"><button type="submit">Aplicar filtros</button></div>
+  </form>
+
+  <div class="table-wrap">
+    <table class="security-events-table">
+      <tr>
+        <th>Data/Hora</th><th>Nível</th><th>Evento</th><th>Usuário</th>
+        <th>Colaborador</th><th>IP</th><th>Detalhes</th>
+      </tr>
+      {% for event in security_events %}
+      <tr>
+        <td>{{event.created_at.strftime('%d/%m/%Y %H:%M:%S')}}</td>
+        <td>
+          {% if event.severity == 'critical' %}
+            <span class="security-level critical">Crítico</span>
+          {% elif event.severity == 'warning' %}
+            <span class="security-level warning">Atenção</span>
+          {% else %}
+            <span class="security-level info">Info</span>
+          {% endif %}
+        </td>
+        <td><strong>{{event.event_type.replace('_',' ')|title}}</strong></td>
+        <td>{{event.user.email if event.user else 'Não autenticado'}}</td>
+        <td>{{event.employee.full_name if event.employee else '—'}}</td>
+        <td><code>{{event.ip_address or '—'}}</code></td>
+        <td>{{event.details or '—'}}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">Nenhum evento encontrado para os filtros selecionados.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Auditoria de ações sensíveis</h2>
+      <p class="muted">Alterações funcionais relevantes para segurança, privacidade e rastreabilidade.</p>
+    </div>
+    <a class="btn secondary" href="{{url_for('rh.audit')}}">Abrir auditoria completa</a>
+  </div>
+
+  <div class="table-wrap">
+    <table class="security-audit-table">
+      <tr><th>Data/Hora</th><th>Responsável</th><th>Ação</th><th>Recurso</th><th>IP</th><th>Detalhes</th></tr>
+      {% for log in audit_events %}
+      <tr>
+        <td>{{log.created_at.strftime('%d/%m/%Y %H:%M:%S')}}</td>
+        <td>{{log.user.email if log.user else 'Sistema / não autenticado'}}</td>
+        <td><strong>{{log.action}}</strong></td>
+        <td>{{log.entity}}{% if log.entity_id %} #{{log.entity_id}}{% endif %}</td>
+        <td><code>{{log.ip_address or '—'}}</code></td>
+        <td>{{log.details or '—'}}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">Nenhuma ação sensível registrada no período.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="panel security-guidance">
+  <h2>Como interpretar os alertas</h2>
+  <div class="security-guidance-grid">
+    <div><strong>Informativo</strong><p>Login válido, acesso autorizado a arquivo ou assinatura concluída.</p></div>
+    <div><strong>Atenção</strong><p>Senha/PIN incorreto ou redefinição administrativa de credencial.</p></div>
+    <div><strong>Crítico</strong><p>Limite de tentativas atingido ou nova tentativa durante bloqueio ativo.</p></div>
+  </div>
+</div>
+{% endblock %}

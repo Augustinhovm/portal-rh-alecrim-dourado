@@ -2,7 +2,7 @@ from functools import wraps
 from flask import abort, request
 from flask_login import current_user
 from .extensions import db
-from .models import AuditLog, ROLE_ADMIN, ROLE_MANAGER
+from .models import AuditLog, SecurityEvent, ROLE_ADMIN, ROLE_MANAGER
 
 
 def roles_required(*roles):
@@ -39,3 +39,21 @@ def log_action(action, entity, entity_id=None, details=None):
 def client_ip():
     """IP de auditoria após ProxyFix; evita confiar diretamente em cabeçalhos arbitrários."""
     return request.remote_addr or "unknown"
+
+
+
+def log_security_event(event_type, severity="info", user=None, employee=None, details=None, ip_address=None):
+    """
+    Registra um evento de segurança sem exigir usuário autenticado.
+    Não executa commit: o chamador decide o limite transacional.
+    """
+    event = SecurityEvent(
+        event_type=(event_type or "evento").strip()[:60],
+        severity=(severity or "info").strip().lower()[:20],
+        user_id=getattr(user, "id", None),
+        employee_id=getattr(employee, "id", None),
+        ip_address=(ip_address or client_ip())[:64],
+        details=details,
+    )
+    db.session.add(event)
+    return event

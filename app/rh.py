@@ -16,8 +16,8 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
-from .security import roles_required, can_manage_employee, log_action, client_ip
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
 
 bp = Blueprint("rh", __name__, url_prefix="/rh")
@@ -119,8 +119,28 @@ def _pin_failure(emp):
         row.window_started_at = now
     row.failures += 1
     row.last_failure_at = now
+
+    severity = "warning"
+    event_type = "pin_failed"
     if row.failures >= PIN_MAX_FAILURES:
         row.blocked_until = now + timedelta(minutes=PIN_BLOCK_MINUTES)
+        severity = "critical"
+        event_type = "pin_blocked"
+
+    log_security_event(
+        event_type,
+        severity=severity,
+        user=emp.user,
+        employee=emp,
+        details=(
+            f"Tentativa de PIN recusada. Falhas na janela atual: {row.failures}. "
+            + (
+                f"Bloqueado até {row.blocked_until.strftime('%d/%m/%Y %H:%M:%S')}."
+                if row.blocked_until else
+                "Ainda não bloqueado."
+            )
+        ),
+    )
     db.session.commit()
 
 
@@ -907,6 +927,13 @@ def employee_reset_password(employee_id):
     emp.user.password_changed_at = None
     log_action("redefiniu senha provisória", "user", emp.user.id,
                f"Nova senha provisória criada para {emp.full_name}; troca obrigatória no próximo acesso.")
+    log_security_event(
+        "password_reset_by_rh",
+        severity="warning",
+        user=current_user,
+        employee=emp,
+        details=f"RH redefiniu a senha provisória de {emp.full_name}.",
+    )
     db.session.commit()
     flash("Senha provisória redefinida. O colaborador deverá criar uma nova senha no próximo acesso.", "success")
     return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#acesso")
@@ -925,6 +952,13 @@ def employee_reset_point_pin(employee_id):
     emp.set_point_pin(pin)
     log_action("redefiniu senha de ponto", "employee", emp.id,
                f"Senha de ponto de 6 dígitos redefinida para {emp.full_name}.")
+    log_security_event(
+        "point_pin_reset_by_rh",
+        severity="warning",
+        user=current_user,
+        employee=emp,
+        details=f"RH redefiniu a senha de ponto de {emp.full_name}.",
+    )
     db.session.commit()
     flash("Senha de ponto redefinida com sucesso.", "success")
     return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#acesso")
@@ -1181,6 +1215,14 @@ def clock():
             return redirect(url_for("rh.clock"))
 
         if _pin_is_blocked(emp):
+            log_security_event(
+                "pin_attempt_while_blocked",
+                severity="critical",
+                user=current_user,
+                employee=emp,
+                details="Tentativa de registro de ponto recebida durante bloqueio de PIN.",
+            )
+            db.session.commit()
             flash("Muitas tentativas de PIN. Aguarde 15 minutos antes de tentar novamente.", "danger")
             return redirect(url_for("rh.clock"))
 
@@ -1846,6 +1888,20 @@ def file_download(kind, item_id):
     else:
         abort(404)
 
+    access_label = {
+        "certificate": "Atestado",
+        "document": "Documento",
+        "payslip": "Holerite",
+    }.get(kind, "Arquivo")
+    log_security_event(
+        "sensitive_file_access",
+        severity="info",
+        user=current_user,
+        employee=emp,
+        details=f"{access_label} #{item.id} acessado; arquivo: {item.original_name}.",
+    )
+    db.session.commit()
+
     response = send_from_directory(
         current_app.config["UPLOAD_FOLDER"],
         item.stored_name,
@@ -2063,6 +2119,14 @@ def time_report_acknowledge():
 
     pin = (request.form.get("point_pin") or "").strip()
     if _pin_is_blocked(emp):
+        log_security_event(
+            "pin_attempt_while_blocked",
+            severity="critical",
+            user=current_user,
+            employee=emp,
+            details="Tentativa de assinatura eletrônica recebida durante bloqueio de PIN.",
+        )
+        db.session.commit()
         flash("Muitas tentativas de PIN. Aguarde 15 minutos antes de tentar novamente.", "danger")
         return redirect(url_for("main.dashboard"))
 
@@ -2095,6 +2159,16 @@ def time_report_acknowledge():
             (
                 f"{emp.full_name}; competência {month:02d}/{year}; "
                 f"assinatura {signature_code}; autenticação por sessão e PIN pessoal"
+            ),
+        )
+        log_security_event(
+            "electronic_signature",
+            severity="info",
+            user=current_user,
+            employee=emp,
+            details=(
+                f"Espelho mensal {month:02d}/{year} assinado eletronicamente. "
+                f"Identificador: {signature_code}."
             ),
         )
         db.session.commit()
@@ -2576,6 +2650,146 @@ def report_time():
     for r in rows: ws.append([r.employee.full_name,r.employee.project,r.employee.department,r.punched_at.strftime("%d/%m/%Y"),r.punched_at.strftime("%H:%M:%S"),r.kind,r.source])
     bio=BytesIO(); wb.save(bio); bio.seek(0)
     return send_file(bio, as_attachment=True, download_name="relatorio_ponto.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@bp.route("/security-center")
+@login_required
+@roles_required(ROLE_ADMIN)
+def security_center():
+    """
+    Painel operacional de segurança do RH.
+    Consolida eventos de autenticação e ações sensíveis sem depender dos logs do Render.
+    """
+    now = now_local()
+
+    try:
+        days = int(request.args.get("days") or 7)
+    except (TypeError, ValueError):
+        days = 7
+    days = min(max(days, 1), 90)
+
+    severity = (request.args.get("severity") or "").strip().lower()
+    event_type = (request.args.get("event_type") or "").strip()
+    start = now - timedelta(days=days)
+
+    security_query = SecurityEvent.query.filter(SecurityEvent.created_at >= start)
+    if severity in {"info", "warning", "critical"}:
+        security_query = security_query.filter(SecurityEvent.severity == severity)
+    if event_type:
+        security_query = security_query.filter(SecurityEvent.event_type == event_type)
+
+    security_events = (
+        security_query
+        .order_by(SecurityEvent.created_at.desc())
+        .limit(500)
+        .all()
+    )
+
+    # Auditoria funcional relevante para segurança/privacidade.
+    security_actions = [
+        "login realizado",
+        "alterou senha no primeiro acesso",
+        "redefiniu senha provisória",
+        "redefiniu senha de ponto",
+        "tentativa inválida de registro de ponto",
+        "adicionou marcação de ponto pelo RH",
+        "alterou marcação de ponto pelo RH",
+        "excluiu marcação de ponto pelo RH",
+        "assinou eletronicamente o espelho mensal de ponto e banco de horas",
+        "anexou documento",
+        "enviou atestado",
+        "anexou holerite manualmente",
+        "separou holerite de PDF consolidado",
+        "removeu holerite",
+    ]
+    audit_events = (
+        AuditLog.query
+        .filter(
+            AuditLog.created_at >= start,
+            AuditLog.action.in_(security_actions),
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(500)
+        .all()
+    )
+
+    last_24h = now - timedelta(hours=24)
+    login_failures_24h = SecurityEvent.query.filter(
+        SecurityEvent.created_at >= last_24h,
+        SecurityEvent.event_type.in_([
+            "login_failed",
+            "login_blocked",
+            "login_attempt_while_blocked",
+        ]),
+    ).count()
+
+    pin_failures_24h = SecurityEvent.query.filter(
+        SecurityEvent.created_at >= last_24h,
+        SecurityEvent.event_type.in_([
+            "pin_failed",
+            "pin_blocked",
+            "pin_attempt_while_blocked",
+        ]),
+    ).count()
+
+    sensitive_access_24h = SecurityEvent.query.filter(
+        SecurityEvent.created_at >= last_24h,
+        SecurityEvent.event_type == "sensitive_file_access",
+    ).count()
+
+    successful_logins_24h = SecurityEvent.query.filter(
+        SecurityEvent.created_at >= last_24h,
+        SecurityEvent.event_type == "login_success",
+    ).count()
+
+    blocked_rows = (
+        AuthThrottle.query
+        .filter(
+            AuthThrottle.blocked_until.isnot(None),
+            AuthThrottle.blocked_until > now,
+        )
+        .order_by(AuthThrottle.blocked_until.desc())
+        .all()
+    )
+
+    active_users = User.query.filter_by(active=True).count()
+    inactive_users = User.query.filter_by(active=False).count()
+
+    critical_7d = SecurityEvent.query.filter(
+        SecurityEvent.created_at >= now - timedelta(days=7),
+        SecurityEvent.severity == "critical",
+    ).count()
+
+    event_types = [
+        row[0]
+        for row in (
+            db.session.query(SecurityEvent.event_type)
+            .filter(SecurityEvent.created_at >= now - timedelta(days=90))
+            .distinct()
+            .order_by(SecurityEvent.event_type.asc())
+            .all()
+        )
+    ]
+
+    return render_template(
+        "security_center.html",
+        security_events=security_events,
+        audit_events=audit_events,
+        blocked_rows=blocked_rows,
+        days=days,
+        severity=severity,
+        selected_event_type=event_type,
+        event_types=event_types,
+        login_failures_24h=login_failures_24h,
+        pin_failures_24h=pin_failures_24h,
+        sensitive_access_24h=sensitive_access_24h,
+        successful_logins_24h=successful_logins_24h,
+        active_users=active_users,
+        inactive_users=inactive_users,
+        critical_7d=critical_7d,
+        now=now,
+    )
+
 
 @bp.route("/audit")
 @login_required

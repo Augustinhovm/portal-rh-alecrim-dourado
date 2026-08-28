@@ -52,3 +52,7 @@ Esta versão aplica hardening defensivo à aplicação Flask. Nenhum sistema con
 ## Limites
 
 A versão não inclui WAF/CDN, antivírus de arquivos, MFA dentro do próprio Portal, SSO corporativo ou análise automática de vulnerabilidades externas. Esses componentes podem ser adicionados em uma etapa posterior.
+
+
+## Central de Segurança
+A V8.6 adiciona a rota administrativa `/rh/security-center`. Somente usuários com papel `admin` podem acessá-la. A central consolida `SecurityEvent`, `AuthThrottle` e ações selecionadas de `AuditLog`. Eventos de login inválido são registrados sem armazenar a senha digitada. O painel exibe IP de auditoria, horários, usuário quando conhecido, colaborador associado e descrição operacional.
