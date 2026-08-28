@@ -222,3 +222,7 @@ O perfil individual do colaborador passa a permitir a configuração de início 
 
 ## V8.5 — Hardening de segurança
 A V8.5 reforça autenticação, sessão, CSRF, proteção contra brute force, PIN de ponto, headers HTTP, cache de documentos sensíveis, política de senha, validação real de PDFs/imagens e tratamento seguro de erros. Consulte `SECURITY.md` antes de publicar em produção.
+
+
+## V8.5.1 — Correção de autenticação no Render
+Corrige falso 403 no POST de login causado pela comparação absoluta de Origin atrás do proxy HTTPS do Render. A proteção CSRF permanece obrigatória e a validação adicional passa a comparar o host da origem com o host efetivo da requisição.

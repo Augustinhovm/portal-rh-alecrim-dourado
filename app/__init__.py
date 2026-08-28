@@ -124,11 +124,18 @@ def create_app(test_config=None):
                 abort(400, description="Sessão de segurança inválida. Atualize a página e tente novamente.")
 
             # Segunda barreira contra requisições cross-site em produção.
+            # No Render, a aplicação fica atrás de proxy reverso. Comparar URLs
+            # absolutas pode produzir falso 403 por diferença entre http/https.
+            # Validamos o host do Origin, mantendo o CSRF obrigatório acima.
             if app.config["PRODUCTION"]:
                 origin = request.headers.get("Origin")
                 if origin:
-                    expected_origin = request.host_url.rstrip("/")
-                    if origin.rstrip("/") != expected_origin:
+                    from urllib.parse import urlparse
+                    parsed_origin = urlparse(origin)
+                    origin_host = (parsed_origin.netloc or "").lower()
+                    request_host = (request.host or "").lower()
+
+                    if not origin_host or origin_host != request_host:
                         abort(403)
 
         if current_user.is_authenticated:
