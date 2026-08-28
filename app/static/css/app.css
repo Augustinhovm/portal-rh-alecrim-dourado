@@ -3622,3 +3622,60 @@ code {
     min-height:0;
   }
 }
+
+
+/* =========================================================
+   V9.1.1 - Cabeçalho: sino à esquerda do avatar
+   ========================================================= */
+.topbar-right {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: nowrap !important;
+  min-width: 0;
+}
+
+.notification-bell {
+  order: 1;
+  flex: 0 0 42px !important;
+  margin: 0 !important;
+}
+
+.top-profile-avatar {
+  order: 2;
+  flex: 0 0 42px !important;
+  margin: 0 !important;
+}
+
+.topbar-user {
+  order: 3;
+  min-width: 0;
+  margin: 0 !important;
+}
+
+.topbar-user strong,
+.topbar-user small {
+  display: block;
+}
+
+@media (max-width: 760px) {
+  .topbar-right {
+    gap: 7px;
+  }
+
+  .notification-bell {
+    flex-basis: 38px !important;
+  }
+
+  .top-profile-avatar {
+    flex-basis: 38px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar-user {
+    display: none;
+  }
+}

@@ -258,3 +258,7 @@ Esta versão reorganiza o Portal RH como uma plataforma integrada de gestão. O 
 
 ## V9.1 — Notificações, Calendário do RH e Central de Relatórios
 Adiciona uma Central de Notificações dinâmica com contador no cabeçalho, avisos administrativos e individuais, Calendário mensal do RH com férias, aniversários e tempo de casa, além de uma Central de Relatórios com exportações de quadro de colaboradores, banco de horas, registros de ponto, auditoria e atestados. As novas exportações ficam registradas em Auditoria.
+
+
+## V9.1.1 — Correção do cabeçalho
+Corrige o alinhamento da área de usuário no cabeçalho. O sino de notificações, a foto do colaborador e a identificação passam a permanecer na mesma linha, na ordem: notificações → avatar → nome/perfil.
