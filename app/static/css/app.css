@@ -3731,3 +3731,179 @@ code {
     display: none;
   }
 }
+
+
+/* =========================================================
+   V9.2 - Assinatura eletrônica geral de documentos
+   ========================================================= */
+.document-signature-option {
+  padding:12px 13px;
+  border:1px solid #dce5e1;
+  border-radius:12px;
+  background:#f7faf8;
+}
+.document-cards {
+  display:grid;
+  gap:12px;
+  margin-top:16px;
+}
+.document-card {
+  min-width:0;
+  padding:15px;
+  border:1px solid #e2e7e5;
+  border-radius:14px;
+  background:#fff;
+}
+.document-card-pending {
+  border-left:4px solid #d4a31d;
+}
+.document-card-main {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  min-width:0;
+}
+.document-card-title {
+  display:flex;
+  align-items:center;
+  gap:11px;
+  min-width:0;
+}
+.document-card-title > div {
+  min-width:0;
+}
+.document-card-title strong,
+.document-card-title small {
+  display:block;
+}
+.document-card-title strong {
+  overflow-wrap:anywhere;
+}
+.document-card-title small {
+  margin-top:4px;
+  color:#667085;
+}
+.document-file-icon {
+  width:42px;
+  height:42px;
+  flex:0 0 42px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:11px;
+  background:#f7e8e7;
+  color:#a53c36;
+  font-size:.68rem;
+  font-weight:900;
+}
+.document-signature-status {
+  flex:0 0 auto;
+}
+.document-card-actions {
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:12px;
+}
+.document-signature-details {
+  min-width:min(100%,360px);
+}
+.document-final-record {
+  margin-top:11px;
+  padding-top:10px;
+  border-top:1px solid #edf0ef;
+  color:#667085;
+  font-size:.76rem;
+  overflow-wrap:anywhere;
+}
+
+.signature-flow-summary {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin-bottom:18px;
+}
+.signature-flow-summary > div {
+  padding:15px;
+  border:1px solid #e3e8e6;
+  border-radius:14px;
+  background:#fff;
+}
+.signature-flow-summary span,
+.signature-flow-summary strong {
+  display:block;
+}
+.signature-flow-summary span {
+  color:#667085;
+  font-size:.75rem;
+  font-weight:800;
+}
+.signature-flow-summary strong {
+  margin-top:5px;
+  font-size:1.5rem;
+}
+
+.signature-management-row {
+  display:grid;
+  grid-template-columns:42px minmax(180px,1fr) auto minmax(220px,auto);
+  gap:12px;
+  align-items:center;
+  padding:13px;
+  border:1px solid #e7ebe9;
+  border-radius:13px;
+  background:#fff;
+}
+.signature-management-status {
+  min-width:0;
+}
+.signature-management-actions {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.signature-finalize-form {
+  display:flex;
+  align-items:center;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.signature-finalize-form input {
+  min-width:190px;
+}
+
+@media (max-width:1050px) {
+  .signature-management-row {
+    grid-template-columns:42px minmax(0,1fr);
+  }
+  .signature-management-status,
+  .signature-management-actions {
+    grid-column:2;
+    justify-content:flex-start;
+  }
+}
+@media (max-width:760px) {
+  .document-card-main {
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .signature-flow-summary {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+@media (max-width:520px) {
+  .signature-flow-summary {
+    grid-template-columns:1fr;
+  }
+  .signature-management-row {
+    grid-template-columns:36px minmax(0,1fr);
+  }
+  .signature-finalize-form,
+  .signature-finalize-form input,
+  .signature-finalize-form button {
+    width:100%;
+  }
+}

@@ -16,7 +16,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
 
@@ -756,6 +756,16 @@ def _notification_items(limit=None):
                 "Há documentos recebidos ainda não processados pelo RH.",
                 "rh.certificates_manage", "high")
 
+        signed_documents = DocumentSignatureFlow.query.filter(
+            DocumentSignatureFlow.signed_at.isnot(None),
+            DocumentSignatureFlow.finalized_at.is_(None),
+            DocumentSignatureFlow.cancelled_at.is_(None),
+        ).count()
+        if signed_documents:
+            add("document_signature", f"{signed_documents} documento(s) aguardando validação do RH",
+                "Os colaboradores já assinaram e aguardam o arquivamento final.",
+                "rh.document_signatures_manage", "high")
+
         active_employees = Employee.query.filter_by(is_active=True).all()
         incomplete = 0
         for emp in active_employees:
@@ -831,6 +841,21 @@ def _notification_items(limit=None):
             add("signature", f"Seu fechamento de {latest.month:02d}/{latest.year} aguarda assinatura",
                 "Abra o espelho mensal, confira os dados e assine com seu PIN.",
                 "main.dashboard", "high")
+
+        pending_documents = (
+            DocumentSignatureFlow.query
+            .join(Document)
+            .filter(
+                Document.employee_id == emp.id,
+                DocumentSignatureFlow.signed_at.is_(None),
+                DocumentSignatureFlow.cancelled_at.is_(None),
+            )
+            .count()
+        )
+        if pending_documents:
+            add("document_signature", f"{pending_documents} documento(s) aguardando sua assinatura",
+                "Abra, confira e assine eletronicamente com seu PIN de ponto.",
+                "rh.employee_detail", "high", employee_id=emp.id)
 
         unread_payslips = Payslip.query.filter(
             Payslip.employee_id == emp.id,
@@ -1135,6 +1160,27 @@ def pending_center():
         .all()
     ) if employee_ids else []
 
+    document_signatures_pending_rh = (
+        DocumentSignatureFlow.query
+        .filter(
+            DocumentSignatureFlow.signed_at.isnot(None),
+            DocumentSignatureFlow.finalized_at.is_(None),
+            DocumentSignatureFlow.cancelled_at.is_(None),
+        )
+        .order_by(DocumentSignatureFlow.signed_at.asc())
+        .all()
+    )
+
+    document_signatures_pending_employee = (
+        DocumentSignatureFlow.query
+        .filter(
+            DocumentSignatureFlow.signed_at.is_(None),
+            DocumentSignatureFlow.cancelled_at.is_(None),
+        )
+        .order_by(DocumentSignatureFlow.requested_at.asc())
+        .all()
+    )
+
     total_actionable = (
         len(pending_requests)
         + len(pending_certificates)
@@ -1143,6 +1189,7 @@ def pending_center():
         + len(awaiting_signatures)
         + len(awaiting_rh_validation)
         + len(access_pending)
+        + len(document_signatures_pending_rh)
     )
 
     return render_template(
@@ -1157,6 +1204,8 @@ def pending_center():
         access_pending=access_pending,
         unread_payslips=unread_payslips,
         upcoming_vacations=upcoming_vacations,
+        document_signatures_pending_rh=document_signatures_pending_rh,
+        document_signatures_pending_employee=document_signatures_pending_employee,
         total_actionable=total_actionable,
     )
 
@@ -2302,12 +2351,277 @@ def payslip_delete(payslip_id):
 @roles_required(ROLE_ADMIN)
 def document_upload(employee_id):
     emp = db.get_or_404(Employee, employee_id)
-    try: original, stored = save_upload(request.files.get("file"))
+    require_signature = request.form.get("require_signature") == "1"
+    try:
+        original, stored = save_upload(request.files.get("file"))
     except ValueError as e:
-        flash(str(e), "danger"); return redirect(url_for("rh.employee_detail", employee_id=employee_id))
-    doc = Document(employee_id=emp.id, category=request.form.get("category") or "Outros", title=request.form.get("title") or original, original_name=original, stored_name=stored)
-    db.session.add(doc); db.session.flush(); log_action("anexou documento", "document", doc.id, original); db.session.commit()
-    flash("Documento anexado.", "success"); return redirect(url_for("rh.employee_detail", employee_id=employee_id))
+        flash(str(e), "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#documentos")
+
+    if require_signature and not original.lower().endswith(".pdf"):
+        path = os.path.join(current_app.config["UPLOAD_FOLDER"], stored)
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+        flash("Documentos destinados à assinatura eletrônica devem ser enviados em PDF.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#documentos")
+
+    doc = Document(
+        employee_id=emp.id,
+        category=request.form.get("category") or "Outros",
+        title=request.form.get("title") or original,
+        original_name=original,
+        stored_name=stored,
+    )
+    db.session.add(doc)
+    db.session.flush()
+
+    if require_signature:
+        flow = DocumentSignatureFlow(
+            document_id=doc.id,
+            requested_by=current_user.id,
+        )
+        db.session.add(flow)
+        log_action(
+            "solicitou assinatura eletrônica de documento",
+            "document",
+            doc.id,
+            f"{emp.full_name}; {doc.title}; arquivo {original}",
+        )
+        log_security_event(
+            "document_signature_requested",
+            severity="info",
+            user=current_user,
+            employee=emp,
+            details=f"Assinatura solicitada para documento #{doc.id}: {doc.title}.",
+        )
+    else:
+        log_action("anexou documento", "document", doc.id, original)
+
+    db.session.commit()
+    flash(
+        "Documento enviado para assinatura do colaborador."
+        if require_signature else
+        "Documento anexado.",
+        "success",
+    )
+    return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#documentos")
+
+
+@bp.route("/documents/signatures")
+@login_required
+@roles_required(ROLE_ADMIN)
+def document_signatures_manage():
+    flows = (
+        DocumentSignatureFlow.query
+        .join(Document)
+        .order_by(DocumentSignatureFlow.requested_at.desc())
+        .all()
+    )
+    counts = {
+        "total": len(flows),
+        "employee_pending": sum(1 for flow in flows if flow.status in {"pending", "viewed"}),
+        "rh_pending": sum(1 for flow in flows if flow.status == "awaiting_rh"),
+        "finalized": sum(1 for flow in flows if flow.status == "finalized"),
+    }
+    return render_template("document_signatures.html", flows=flows, counts=counts)
+
+
+@bp.route("/documents/<int:document_id>/sign", methods=["POST"])
+@login_required
+def document_sign(document_id):
+    doc = db.get_or_404(Document, document_id)
+    flow = doc.signature_flow
+    emp = doc.employee
+
+    if not current_user.employee or current_user.employee.id != emp.id:
+        abort(403)
+    if not flow or flow.cancelled_at or flow.finalized_at:
+        flash("Este documento não está disponível para assinatura.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#documentos")
+    if flow.signed_at:
+        flash("Este documento já foi assinado.", "warning")
+        return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#documentos")
+    if not flow.employee_viewed_at:
+        flash("Abra e confira o documento antes de assinar.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#documentos")
+    if request.form.get("confirm_ack") != "1":
+        flash("Confirme que leu e conferiu o documento.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#documentos")
+
+    if _pin_is_blocked(emp):
+        log_security_event(
+            "pin_attempt_while_blocked",
+            severity="critical",
+            user=current_user,
+            employee=emp,
+            details=f"Tentativa de assinatura do documento #{doc.id} durante bloqueio de PIN.",
+        )
+        db.session.commit()
+        flash("Senha de ponto temporariamente bloqueada por tentativas inválidas.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#documentos")
+
+    pin = (request.form.get("point_pin") or "").strip()
+    if not emp.check_point_pin(pin):
+        _pin_failure(emp)
+        flash("Senha de ponto inválida.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#documentos")
+
+    _pin_success(emp)
+    stamp = now_local()
+    raw_code = f"doc|{doc.id}|{emp.id}|{stamp.isoformat()}|{uuid.uuid4().hex}"
+    flow.signed_at = stamp
+    flow.signature_code = hashlib.sha256(raw_code.encode("utf-8")).hexdigest()[:32].upper()
+    flow.signer_ip = client_ip()
+
+    log_action(
+        "assinou eletronicamente documento",
+        "document",
+        doc.id,
+        f"{emp.full_name}; {doc.title}; código {flow.signature_code}",
+    )
+    log_security_event(
+        "electronic_document_signature",
+        severity="info",
+        user=current_user,
+        employee=emp,
+        details=f"Documento #{doc.id} assinado eletronicamente; código {flow.signature_code}.",
+    )
+    db.session.commit()
+    flash("Documento assinado eletronicamente. Agora aguarda validação final do RH.", "success")
+    return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#documentos")
+
+
+@bp.route("/documents/<int:document_id>/finalize", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def document_signature_finalize(document_id):
+    doc = db.get_or_404(Document, document_id)
+    flow = doc.signature_flow
+    if not flow or flow.cancelled_at or not flow.signed_at:
+        flash("O documento ainda não possui assinatura válida para finalizar.", "danger")
+        return redirect(url_for("rh.document_signatures_manage"))
+
+    if not flow.finalized_at:
+        flow.finalized_at = now_local()
+        flow.finalized_by = current_user.id
+        flow.final_note = (request.form.get("note") or "").strip() or None
+        log_action(
+            "validou assinatura eletrônica de documento",
+            "document",
+            doc.id,
+            f"{doc.employee.full_name}; {doc.title}; código {flow.signature_code}",
+        )
+        log_security_event(
+            "document_signature_finalized",
+            severity="info",
+            user=current_user,
+            employee=doc.employee,
+            details=f"Documento #{doc.id} validado e arquivado pelo RH.",
+        )
+        db.session.commit()
+
+    flash("Assinatura validada e documento arquivado.", "success")
+    return redirect(url_for("rh.document_signatures_manage"))
+
+
+@bp.route("/documents/<int:document_id>/signature-proof.pdf")
+@login_required
+def document_signature_proof(document_id):
+    doc = db.get_or_404(Document, document_id)
+    flow = doc.signature_flow
+    emp = doc.employee
+
+    if current_user.role != ROLE_ADMIN and (
+        not current_user.employee or current_user.employee.id != emp.id
+    ):
+        abort(403)
+    if not flow or not flow.signed_at:
+        abort(404)
+
+    file_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.stored_name)
+    document_hash = "arquivo indisponível"
+    if os.path.isfile(file_path):
+        sha = hashlib.sha256()
+        with open(file_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                sha.update(chunk)
+        document_hash = sha.hexdigest().upper()
+
+    buffer = BytesIO()
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "ProofTitle",
+        parent=styles["Heading1"],
+        fontSize=16,
+        leading=19,
+        alignment=TA_CENTER,
+        spaceAfter=10,
+    )
+    body_style = ParagraphStyle(
+        "ProofBody",
+        parent=styles["BodyText"],
+        fontSize=9,
+        leading=13,
+    )
+    story = [
+        Paragraph("COMPROVANTE DE ASSINATURA ELETRÔNICA", title_style),
+        Paragraph("Portal RH — Associação Alecrim Dourado", styles["Heading3"]),
+        Spacer(1, 8),
+        Table([
+            ["Colaborador", emp.full_name],
+            ["Documento", doc.title],
+            ["Categoria", doc.category],
+            ["Arquivo original", doc.original_name],
+            ["Enviado em", doc.uploaded_at.strftime("%d/%m/%Y %H:%M")],
+            ["Visualizado em", flow.employee_viewed_at.strftime("%d/%m/%Y %H:%M:%S") if flow.employee_viewed_at else "—"],
+            ["Assinado em", flow.signed_at.strftime("%d/%m/%Y %H:%M:%S")],
+            ["Código da assinatura", flow.signature_code or "—"],
+            ["IP registrado", flow.signer_ip or "—"],
+            ["Hash SHA-256 do documento", document_hash],
+            ["Validação do RH", flow.finalized_at.strftime("%d/%m/%Y %H:%M:%S") if flow.finalized_at else "Aguardando validação"],
+            ["Responsável RH", flow.finalizer.email if flow.finalizer else "—"],
+            ["Observação final", flow.final_note or "—"],
+        ], colWidths=[45*mm, 135*mm], style=[
+            ("GRID", (0,0), (-1,-1), .35, colors.HexColor("#cfd8d4")),
+            ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#f2f5f4")),
+            ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("LEFTPADDING", (0,0), (-1,-1), 6),
+            ("RIGHTPADDING", (0,0), (-1,-1), 6),
+            ("TOPPADDING", (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ]),
+        Spacer(1, 12),
+        Paragraph(
+            "Este comprovante registra a ciência e a assinatura eletrônica realizada dentro do Portal RH. "
+            "O código de assinatura e o hash SHA-256 vinculam este comprovante à versão do arquivo disponibilizada ao colaborador. "
+            "Este mecanismo representa aceite eletrônico interno do Portal e não corresponde a certificado digital ICP-Brasil.",
+            body_style,
+        ),
+    ]
+    pdf = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=15*mm,
+        leftMargin=15*mm,
+        topMargin=15*mm,
+        bottomMargin=15*mm,
+    )
+    pdf.build(story)
+    buffer.seek(0)
+
+    log_action("gerou comprovante de assinatura de documento", "document", doc.id, doc.title)
+    db.session.commit()
+    return send_file(
+        buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"comprovante-assinatura-documento-{doc.id}.pdf",
+    )
 
 @bp.route("/files/<string:kind>/<int:item_id>")
 @login_required
@@ -2318,7 +2632,22 @@ def file_download(kind, item_id):
         if current_user.role != ROLE_ADMIN and (not current_user.employee or current_user.employee.id != emp.id): abort(403)
     elif kind == "document":
         item = db.get_or_404(Document, item_id); emp=item.employee
-        if current_user.role != ROLE_ADMIN and (not current_user.employee or current_user.employee.id != emp.id): abort(403)
+        if current_user.role != ROLE_ADMIN and (not current_user.employee or current_user.employee.id != emp.id):
+            abort(403)
+        if (
+            current_user.role != ROLE_ADMIN
+            and item.signature_flow
+            and not item.signature_flow.cancelled_at
+            and not item.signature_flow.employee_viewed_at
+        ):
+            item.signature_flow.employee_viewed_at = now_local()
+            log_action(
+                "visualizou documento para assinatura",
+                "document",
+                item.id,
+                f"{emp.full_name}; {item.title}",
+            )
+            db.session.commit()
     elif kind == "payslip":
         item = db.get_or_404(Payslip, item_id); emp=item.employee
         # Holerite contém informação remuneratória: acesso apenas do RH e do titular.

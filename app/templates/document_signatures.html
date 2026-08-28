@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Assinaturas de Documentos · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <span class="executive-kicker">DOCUMENTOS E CIÊNCIA</span>
+    <h1>Central de Assinaturas</h1>
+    <p class="muted">Acompanhe documentos enviados para leitura, assinatura eletrônica e validação final do RH.</p>
+  </div>
+</div>
+
+<div class="signature-flow-summary">
+  <div><span>Total</span><strong>{{counts.total}}</strong></div>
+  <div><span>Aguardando colaborador</span><strong>{{counts.employee_pending}}</strong></div>
+  <div><span>Aguardando RH</span><strong>{{counts.rh_pending}}</strong></div>
+  <div><span>Finalizados</span><strong>{{counts.finalized}}</strong></div>
+</div>
+
+<div class="panel">
+  <div class="professional-list">
+    {% for flow in flows %}
+      <div class="signature-management-row">
+        <div class="list-avatar">{{flow.document.employee.full_name[:1]|upper}}</div>
+        <div class="list-main">
+          <strong>{{flow.document.employee.full_name}}</strong>
+          <small>{{flow.document.title}} · {{flow.document.category}}</small>
+          <small>Solicitado em {{flow.requested_at.strftime('%d/%m/%Y %H:%M')}}</small>
+        </div>
+        <div class="signature-management-status">
+          {% if flow.cancelled_at %}
+            <span class="badge">Cancelado</span>
+          {% elif flow.finalized_at %}
+            <span class="badge approved">Finalizado</span>
+          {% elif flow.signed_at %}
+            <span class="badge pending">Validar pelo RH</span>
+          {% elif flow.employee_viewed_at %}
+            <span class="badge pending">Aguardando assinatura</span>
+          {% else %}
+            <span class="badge pending">Não visualizado</span>
+          {% endif %}
+        </div>
+        <div class="signature-management-actions">
+          <a class="btn secondary" target="_blank" rel="noopener" href="{{url_for('rh.file_download',kind='document',item_id=flow.document.id)}}">Documento</a>
+          {% if flow.signed_at %}
+            <a class="btn secondary" href="{{url_for('rh.document_signature_proof',document_id=flow.document.id)}}">Comprovante</a>
+          {% endif %}
+          {% if flow.signed_at and not flow.finalized_at and not flow.cancelled_at %}
+            <form method="post" action="{{url_for('rh.document_signature_finalize',document_id=flow.document.id)}}" class="signature-finalize-form">
+              <input name="note" placeholder="Observação final (opcional)">
+              <button type="submit">Validar e arquivar</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <div class="professional-empty">Nenhum documento foi enviado para assinatura.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

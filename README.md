@@ -266,3 +266,7 @@ Corrige o alinhamento da área de usuário no cabeçalho. O sino de notificaçõ
 
 ## V9.1.2 — Perfil no cabeçalho
 O nome e a função do colaborador passam a ficar centralizados abaixo da foto de perfil, mantendo o sino de notificações à esquerda.
+
+
+## V9.2 — Assinatura eletrônica geral de documentos
+Cria um fluxo completo para documentos funcionais em PDF: envio pelo RH, visualização obrigatória pelo colaborador, confirmação de ciência, assinatura com PIN pessoal de ponto, registro de data/hora/IP/código, validação final pelo RH e comprovante PDF com hash SHA-256 da versão assinada. A Central de Pendências e as Notificações passam a acompanhar esses documentos. O aceite é eletrônico interno do Portal e não equivale a certificado digital ICP-Brasil.

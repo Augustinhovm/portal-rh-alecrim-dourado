@@ -473,5 +473,122 @@
   </table></div>
 </div>
 
-<div class="panel" id="documentos"><h2>Documentos</h2>{% if current_user.role=='admin' %}<form method="post" enctype="multipart/form-data" action="{{url_for('rh.document_upload',employee_id=emp.id)}}" class="inline-form"><input name="title" placeholder="Título" required><input name="category" placeholder="Categoria" required><input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required><button>Anexar</button></form>{% endif %}<div class="table-wrap"><table><tr><th>Título</th><th>Categoria</th><th>Data</th><th>Arquivo</th></tr>{% for d in docs %}<tr><td>{{d.title}}</td><td>{{d.category}}</td><td>{{d.uploaded_at.strftime('%d/%m/%Y')}}</td><td><a href="{{url_for('rh.file_download',kind='document',item_id=d.id)}}">Abrir</a></td></tr>{% else %}<tr><td colspan="4">Nenhum documento.</td></tr>{% endfor %}</table></div></div>
+<div class="panel" id="documentos">
+  <div class="section-heading">
+    <div>
+      <h2>Documentos</h2>
+      <p class="muted">Arquivos funcionais e documentos enviados para ciência e assinatura eletrônica.</p>
+    </div>
+    {% if current_user.role=='admin' %}
+      <a class="btn secondary" href="{{url_for('rh.document_signatures_manage')}}">Central de assinaturas</a>
+    {% endif %}
+  </div>
+
+  {% if current_user.role=='admin' %}
+  <details class="admin-tool" open>
+    <summary>Anexar novo documento</summary>
+    <form method="post" enctype="multipart/form-data" action="{{url_for('rh.document_upload',employee_id=emp.id)}}" class="form-grid compact-form">
+      <label>Título
+        <input name="title" placeholder="Ex.: Termo de responsabilidade" required>
+      </label>
+      <label>Categoria
+        <select name="category" required>
+          <option value="Contrato">Contrato</option>
+          <option value="Aditivo">Aditivo</option>
+          <option value="Termo">Termo</option>
+          <option value="Política interna">Política interna</option>
+          <option value="Comunicado">Comunicado</option>
+          <option value="Advertência">Advertência</option>
+          <option value="Documento pessoal">Documento pessoal</option>
+          <option value="Outros">Outros</option>
+        </select>
+      </label>
+      <label class="full">Arquivo
+        <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required>
+      </label>
+      <label class="signature-checkbox full document-signature-option">
+        <input type="checkbox" name="require_signature" value="1">
+        <span>Solicitar ciência e assinatura eletrônica do colaborador. Para assinatura, o arquivo deve ser PDF.</span>
+      </label>
+      <div class="full"><button type="submit">Anexar documento</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  <div class="document-cards">
+    {% for d in docs %}
+      {% set flow = d.signature_flow %}
+      <article class="document-card {% if flow and not flow.finalized_at and not flow.cancelled_at %}document-card-pending{% endif %}">
+        <div class="document-card-main">
+          <div class="document-card-title">
+            <span class="document-file-icon">PDF</span>
+            <div>
+              <strong>{{d.title}}</strong>
+              <small>{{d.category}} · enviado em {{d.uploaded_at.strftime('%d/%m/%Y')}}</small>
+            </div>
+          </div>
+
+          {% if flow %}
+            <div class="document-signature-status">
+              {% if flow.cancelled_at %}
+                <span class="badge">Fluxo cancelado</span>
+              {% elif flow.finalized_at %}
+                <span class="badge approved">Assinado e arquivado</span>
+              {% elif flow.signed_at %}
+                <span class="badge pending">Aguardando validação do RH</span>
+              {% elif flow.employee_viewed_at %}
+                <span class="badge pending">Visualizado · aguardando assinatura</span>
+              {% else %}
+                <span class="badge pending">Aguardando visualização e assinatura</span>
+              {% endif %}
+            </div>
+          {% else %}
+            <div class="document-signature-status"><span class="badge">Documento simples</span></div>
+          {% endif %}
+        </div>
+
+        <div class="document-card-actions">
+          <a class="btn secondary" target="_blank" rel="noopener" href="{{url_for('rh.file_download',kind='document',item_id=d.id)}}">Visualizar</a>
+
+          {% if flow and flow.signed_at %}
+            <a class="btn secondary" href="{{url_for('rh.document_signature_proof',document_id=d.id)}}">Comprovante</a>
+          {% endif %}
+
+          {% if flow and current_user.employee and current_user.employee.id == emp.id and not flow.signed_at and not flow.cancelled_at %}
+            <details class="signature-confirm-details document-signature-details">
+              <summary>Conferi e quero assinar</summary>
+              <form method="post" action="{{url_for('rh.document_sign',document_id=d.id)}}" class="signature-confirm-form">
+                {% if not flow.employee_viewed_at %}
+                  <div class="signature-view-warning">
+                    <strong>Antes de assinar:</strong> abra o documento pelo botão “Visualizar” e confira o conteúdo.
+                  </div>
+                {% endif %}
+                <label class="signature-checkbox">
+                  <input type="checkbox" name="confirm_ack" value="1" required>
+                  <span>Declaro que li, conferi e estou de acordo em registrar minha ciência e assinatura eletrônica neste documento.</span>
+                </label>
+                <label>Senha pessoal de ponto
+                  <input type="password" name="point_pin" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" placeholder="6 dígitos" required>
+                </label>
+                <button type="submit">Assinar documento</button>
+              </form>
+            </details>
+          {% endif %}
+        </div>
+
+        {% if flow and flow.finalized_at %}
+          <div class="document-final-record">
+            Validado pelo RH em {{flow.finalized_at.strftime('%d/%m/%Y %H:%M')}} · código {{flow.signature_code}}
+          </div>
+        {% elif flow and flow.signed_at %}
+          <div class="document-final-record">
+            Assinado pelo colaborador em {{flow.signed_at.strftime('%d/%m/%Y %H:%M')}} · aguardando validação final.
+          </div>
+        {% endif %}
+      </article>
+    {% else %}
+      <div class="professional-empty">Nenhum documento cadastrado.</div>
+    {% endfor %}
+  </div>
+</div>
 {% endblock %}

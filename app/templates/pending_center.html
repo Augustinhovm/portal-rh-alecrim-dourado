@@ -21,6 +21,7 @@
   <a class="pending-summary-card" href="#assinaturas"><span>Assinaturas</span><strong>{{awaiting_signatures|length}}</strong></a>
   <a class="pending-summary-card" href="#validacoes"><span>Validação RH</span><strong>{{awaiting_rh_validation|length}}</strong></a>
   <a class="pending-summary-card" href="#acessos"><span>Acessos</span><strong>{{access_pending|length}}</strong></a>
+  <a class="pending-summary-card" href="#documentos-assinatura"><span>Documentos para validar</span><strong>{{document_signatures_pending_rh|length}}</strong></a>
 </div>
 
 <section class="pending-section panel" id="solicitacoes">
@@ -145,6 +146,28 @@
     </a>
     {% else %}
     <div class="professional-empty">Nenhuma pendência de acesso identificada.</div>
+    {% endfor %}
+  </div>
+</section>
+
+
+<section class="pending-section panel" id="documentos-assinatura">
+  <div class="section-heading">
+    <div><h2>Documentos eletrônicos aguardando validação</h2><p class="muted">Documentos já assinados pelo colaborador que precisam ser validados e arquivados pelo RH.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.document_signatures_manage')}}">Central de assinaturas</a>
+  </div>
+  <div class="professional-list compact-list">
+    {% for flow in document_signatures_pending_rh %}
+      <a class="professional-list-row" href="{{url_for('rh.document_signatures_manage')}}">
+        <div class="list-avatar">{{flow.document.employee.full_name[:1]|upper}}</div>
+        <div class="list-main">
+          <strong>{{flow.document.employee.full_name}}</strong>
+          <small>{{flow.document.title}} · assinado em {{flow.signed_at.strftime('%d/%m/%Y %H:%M')}}</small>
+        </div>
+        <div class="list-meta"><span class="badge pending">Validar e arquivar</span></div>
+      </a>
+    {% else %}
+      <div class="professional-empty">Nenhum documento assinado aguardando validação do RH.</div>
     {% endfor %}
   </div>
 </section>

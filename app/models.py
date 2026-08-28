@@ -236,6 +236,44 @@ class Document(db.Model):
     uploaded_at = db.Column(db.DateTime, default=now_local, nullable=False)
     employee = db.relationship("Employee")
 
+
+class DocumentSignatureFlow(db.Model):
+    """Fluxo de ciência/assinatura eletrônica associado a um documento existente."""
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey("document.id"), nullable=False, unique=True, index=True)
+    requested_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    requested_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    employee_viewed_at = db.Column(db.DateTime)
+    signed_at = db.Column(db.DateTime)
+    signature_code = db.Column(db.String(64), unique=True)
+    signer_ip = db.Column(db.String(64))
+    finalized_at = db.Column(db.DateTime)
+    finalized_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+    final_note = db.Column(db.String(255))
+    cancelled_at = db.Column(db.DateTime)
+    cancelled_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+    cancel_note = db.Column(db.String(255))
+
+    document = db.relationship(
+        "Document",
+        backref=db.backref("signature_flow", uselist=False, cascade="all, delete-orphan"),
+    )
+    requester = db.relationship("User", foreign_keys=[requested_by])
+    finalizer = db.relationship("User", foreign_keys=[finalized_by])
+    canceller = db.relationship("User", foreign_keys=[cancelled_by])
+
+    @property
+    def status(self):
+        if self.cancelled_at:
+            return "cancelled"
+        if self.finalized_at:
+            return "finalized"
+        if self.signed_at:
+            return "awaiting_rh"
+        if self.employee_viewed_at:
+            return "viewed"
+        return "pending"
+
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
