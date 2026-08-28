@@ -242,3 +242,7 @@ A área de Auditoria passa a permitir filtro por data inicial e data final. O me
 
 ## V8.8.1 — Correção do botão de assinatura do colaborador
 O formulário “Conferi e quero assinar” permanece visível no painel enquanto houver uma competência fechada ainda não assinada. O PDF pode continuar abrindo em nova aba; ao retornar, o colaborador consegue assinar sem precisar atualizar a página. A validação no servidor permanece obrigatória e impede assinatura quando o relatório ainda não foi realmente visualizado.
+
+
+## V8.9 — Refinamento visual e responsividade
+Revisão global da interface do Portal RH. Evita rolagem horizontal da página, restringe eventual rolagem apenas ao bloco interno de tabelas, melhora dashboard, formulários, fechamento mensal, auditoria, Central de Segurança, cartões, botões, campos, espaçamentos e visual em telas menores.
