@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Central de Relatórios · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <span class="executive-kicker">GESTÃO E PRESTAÇÃO DE CONTAS</span>
+    <h1>Central de Relatórios</h1>
+    <p class="muted">Exportações administrativas organizadas em um único lugar.</p>
+  </div>
+</div>
+
+<div class="reports-grid">
+  <section class="report-card">
+    <span class="report-icon">👥</span>
+    <div><h2>Quadro de colaboradores</h2><p>Nome, matrícula, cargo, setor, projeto, admissão, carga semanal, status e e-mail.</p></div>
+    <a class="btn" href="{{url_for('rh.report_employees_xlsx')}}">Baixar Excel</a>
+  </section>
+
+  <section class="report-card">
+    <span class="report-icon">◴</span>
+    <div><h2>Banco de horas</h2><p>Saldo atual de todos os colaboradores ativos, com identificação funcional.</p></div>
+    <a class="btn" href="{{url_for('rh.report_bank_xlsx')}}">Baixar Excel</a>
+  </section>
+
+  <section class="report-card">
+    <span class="report-icon">▣</span>
+    <div><h2>Registros de ponto</h2><p>Exportação consolidada das marcações de ponto disponíveis ao RH.</p></div>
+    <a class="btn" href="{{url_for('rh.report_time')}}">Baixar Excel</a>
+  </section>
+
+  <section class="report-card">
+    <span class="report-icon">✓</span>
+    <div><h2>Auditoria</h2><p>Consulte a trilha completa e gere o PDF por período.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.audit')}}">Abrir auditoria</a>
+  </section>
+
+  <section class="report-card">
+    <span class="report-icon">✚</span>
+    <div><h2>Atestados médicos</h2><p>Filtros administrativos e impressão em lote por período de envio.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.certificates_manage')}}">Abrir gestão</a>
+  </section>
+
+  <section class="report-card report-card-featured">
+    <span class="report-icon">📅</span>
+    <div><h2>Calendário do RH</h2><p>Consulte férias, aniversários e datas de admissão de forma visual.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.hr_calendar')}}">Abrir calendário</a>
+  </section>
+</div>
+
+<div class="panel report-note">
+  <strong>Relatórios rastreáveis</strong>
+  <p class="muted">As novas exportações administrativas ficam registradas na trilha de Auditoria do Portal.</p>
+</div>
+{% endblock %}

@@ -3304,3 +3304,321 @@ code {
     top:62px;
   }
 }
+
+
+/* =========================================================
+   V9.1 - Notificações, Calendário do RH e Central de Relatórios
+   ========================================================= */
+
+/* Sino de notificações */
+.notification-bell {
+  position:relative;
+  width:42px;
+  height:42px;
+  flex:0 0 42px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #dfe6e3;
+  border-radius:12px;
+  background:#fff;
+  color:#34463f;
+  text-decoration:none;
+  transition:background .16s ease,border-color .16s ease,transform .16s ease;
+}
+.notification-bell:hover {
+  background:#f5f8f7;
+  border-color:#cddad5;
+  transform:translateY(-1px);
+}
+.notification-bell-icon {
+  font-size:1rem;
+  line-height:1;
+}
+.notification-badge {
+  position:absolute;
+  top:-5px;
+  right:-6px;
+  min-width:20px;
+  height:20px;
+  padding:0 5px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:999px;
+  border:2px solid #fff;
+  background:#b33c32;
+  color:#fff;
+  font-size:.65rem;
+  font-weight:900;
+  line-height:1;
+}
+
+/* Central de notificações */
+.notification-center {
+  max-width:920px;
+}
+.notification-row {
+  position:relative;
+  display:grid;
+  grid-template-columns:12px minmax(0,1fr) 24px;
+  gap:13px;
+  align-items:center;
+  padding:15px 13px;
+  border-bottom:1px solid #edf0ef;
+  color:inherit;
+  text-decoration:none;
+  border-radius:10px;
+}
+.notification-row:last-child {
+  border-bottom:0;
+}
+.notification-row:hover {
+  background:#f8fbfa;
+}
+.notification-row > div {
+  min-width:0;
+}
+.notification-row strong,
+.notification-row small {
+  display:block;
+}
+.notification-row strong {
+  font-size:.9rem;
+}
+.notification-row small {
+  margin-top:4px;
+  color:#667085;
+  line-height:1.45;
+}
+.notification-dot {
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#9ca7a2;
+}
+.notification-high .notification-dot {
+  background:#c34c42;
+  box-shadow:0 0 0 4px rgba(195,76,66,.10);
+}
+.notification-arrow {
+  color:#95a09b;
+  font-size:1.5rem;
+  text-align:right;
+}
+
+/* Calendário */
+.calendar-heading {
+  align-items:center;
+}
+.calendar-controls {
+  display:flex;
+  align-items:end;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.calendar-controls form {
+  display:flex;
+  align-items:end;
+  gap:7px;
+}
+.calendar-controls input[type="month"] {
+  min-height:42px;
+}
+.calendar-title {
+  margin:8px 0 12px;
+  font-size:1.18rem;
+  font-weight:900;
+  color:#25352f;
+}
+.calendar-legend {
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:14px;
+  margin-bottom:12px;
+  color:#667085;
+  font-size:.78rem;
+  font-weight:700;
+}
+.calendar-legend span {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+.calendar-marker {
+  width:9px;
+  height:9px;
+  display:inline-block;
+  border-radius:50%;
+}
+.calendar-marker.vacation { background:#2f7a5d; }
+.calendar-marker.birthday { background:#b48716; }
+.calendar-marker.admission { background:#496d9b; }
+
+.calendar-grid-wrap {
+  max-width:100%;
+  overflow-x:auto;
+  border:1px solid #e1e7e4;
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 5px 18px rgba(25,31,36,.04);
+}
+.calendar-grid {
+  min-width:790px;
+  display:grid;
+  grid-template-columns:repeat(7,minmax(110px,1fr));
+}
+.calendar-weekday {
+  padding:11px;
+  border-bottom:1px solid #e6ebe8;
+  background:#f7f9f8;
+  color:#667085;
+  font-size:.72rem;
+  font-weight:900;
+  text-transform:uppercase;
+  text-align:center;
+}
+.calendar-day {
+  min-width:0;
+  min-height:128px;
+  padding:9px;
+  border-right:1px solid #edf0ef;
+  border-bottom:1px solid #edf0ef;
+  background:#fff;
+}
+.calendar-day:nth-child(7n) {
+  border-right:0;
+}
+.calendar-day-empty {
+  background:#fafbfb;
+}
+.calendar-day.today {
+  box-shadow:inset 0 0 0 2px #c99b28;
+  background:#fffdf6;
+}
+.calendar-day-number {
+  width:27px;
+  height:27px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin-bottom:6px;
+  border-radius:8px;
+  font-size:.78rem;
+  font-weight:900;
+  color:#46534e;
+}
+.calendar-day.today .calendar-day-number {
+  background:#c99b28;
+  color:#fff;
+}
+.calendar-events {
+  display:grid;
+  gap:4px;
+}
+.calendar-event {
+  max-width:100%;
+  padding:5px 6px;
+  border-radius:7px;
+  font-size:.66rem;
+  font-weight:800;
+  line-height:1.25;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.calendar-event.vacation {
+  background:#e8f4ef;
+  color:#246349;
+}
+.calendar-event.birthday {
+  background:#fff4d9;
+  color:#855f08;
+}
+.calendar-event.admission {
+  background:#eaf1fa;
+  color:#3a608c;
+}
+
+/* Central de relatórios */
+.reports-grid {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:15px;
+  margin-bottom:18px;
+}
+.report-card {
+  min-width:0;
+  min-height:245px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  padding:20px;
+  border:1px solid #e2e8e5;
+  border-radius:17px;
+  background:#fff;
+  box-shadow:0 5px 18px rgba(25,31,36,.04);
+}
+.report-card-featured {
+  background:
+    radial-gradient(circle at 90% 10%,rgba(226,177,48,.14),transparent 28%),
+    #fff;
+}
+.report-icon {
+  width:46px;
+  height:46px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:13px;
+  background:#eef4f1;
+  font-size:1.15rem;
+}
+.report-card > div {
+  flex:1;
+}
+.report-card h2 {
+  margin:0 0 7px;
+  font-size:1.05rem;
+}
+.report-card p {
+  margin:0;
+  color:#667085;
+  font-size:.82rem;
+  line-height:1.5;
+}
+.report-card .btn {
+  align-self:flex-start;
+}
+.report-note p {
+  margin:5px 0 0;
+}
+
+/* Ajustes responsivos */
+@media (max-width:1000px) {
+  .reports-grid {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+@media (max-width:680px) {
+  .notification-bell {
+    width:38px;
+    height:38px;
+    flex-basis:38px;
+  }
+  .calendar-controls,
+  .calendar-controls form,
+  .calendar-controls .btn,
+  .calendar-controls button {
+    width:100%;
+  }
+  .calendar-controls input[type="month"] {
+    flex:1;
+  }
+  .reports-grid {
+    grid-template-columns:1fr;
+  }
+  .report-card {
+    min-height:0;
+  }
+}

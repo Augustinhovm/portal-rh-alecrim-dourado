@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Calendário do RH · Portal RH{% endblock %}
+{% block content %}
+<div class="heading calendar-heading">
+  <div>
+    <span class="executive-kicker">AGENDA DE PESSOAS</span>
+    <h1>Calendário do RH</h1>
+    <p class="muted">Férias programadas, aniversários e aniversários de admissão em uma visão mensal.</p>
+  </div>
+  <div class="calendar-controls">
+    <a class="btn secondary" href="{{url_for('rh.hr_calendar',month=previous_month)}}">‹ Anterior</a>
+    <form method="get">
+      <input type="month" name="month" value="{{month_value}}">
+      <button type="submit">Ir para mês</button>
+    </form>
+    <a class="btn secondary" href="{{url_for('rh.hr_calendar',month=next_month)}}">Próximo ›</a>
+  </div>
+</div>
+
+<div class="calendar-title">{{month_label|title}} de {{year}}</div>
+
+<div class="calendar-legend">
+  <span><i class="calendar-marker vacation"></i> Férias</span>
+  <span><i class="calendar-marker birthday"></i> Aniversário</span>
+  <span><i class="calendar-marker admission"></i> Tempo de casa</span>
+</div>
+
+<div class="calendar-grid-wrap">
+  <div class="calendar-grid">
+    {% for weekday in ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'] %}
+      <div class="calendar-weekday">{{weekday}}</div>
+    {% endfor %}
+    {% for week in weeks %}
+      {% for day in week %}
+        {% if day == 0 %}
+          <div class="calendar-day calendar-day-empty"></div>
+        {% else %}
+          <div class="calendar-day {% if today.year==year and today.month==month and today.day==day %}today{% endif %}">
+            <div class="calendar-day-number">{{day}}</div>
+            <div class="calendar-events">
+              {% for event in events_by_day[day] %}
+                <div class="calendar-event {{event.type}}" title="{{event.label}}">{{event.label}}</div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

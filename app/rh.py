@@ -726,6 +726,304 @@ def visible_employees():
     return [current_user.employee] if current_user.employee else []
 
 
+def _notification_items(limit=None):
+    """Gera notificações operacionais a partir do estado atual do Portal, sem duplicar dados."""
+    if not current_user.is_authenticated:
+        return []
+
+    today = today_local()
+    items = []
+
+    def add(kind, title, description, endpoint, priority="normal", **values):
+        items.append({
+            "kind": kind,
+            "title": title,
+            "description": description,
+            "url": url_for(endpoint, **values),
+            "priority": priority,
+        })
+
+    if current_user.role == ROLE_ADMIN:
+        pending_requests = Request.query.filter_by(status="pending").count()
+        if pending_requests:
+            add("approval", f"{pending_requests} solicitação(ões) aguardando aprovação",
+                "Banco de horas, horas extras ou ajustes aguardam decisão.",
+                "rh.approvals", "high")
+
+        certs = MedicalCertificate.query.filter_by(status="recebido").count()
+        if certs:
+            add("certificate", f"{certs} atestado(s) aguardando conferência",
+                "Há documentos recebidos ainda não processados pelo RH.",
+                "rh.certificates_manage", "high")
+
+        active_employees = Employee.query.filter_by(is_active=True).all()
+        incomplete = 0
+        for emp in active_employees:
+            count = TimeClock.query.filter(
+                TimeClock.employee_id == emp.id,
+                func.date(TimeClock.punched_at) == today,
+            ).count()
+            if count not in (0, 4):
+                incomplete += 1
+        if incomplete:
+            add("clock", f"{incomplete} marcação(ões) incompleta(s) hoje",
+                "Confira os registros de ponto antes do fechamento do dia.",
+                "rh.time_records", "high")
+
+        open_month = 0
+        awaiting_signature = 0
+        awaiting_validation = 0
+        for emp in active_employees:
+            closure = TimePeriodClosure.query.filter_by(
+                employee_id=emp.id, year=today.year, month=today.month
+            ).first()
+            if not closure or closure.status != "closed":
+                open_month += 1
+                continue
+            ack = TimeReportAcknowledgement.query.filter_by(
+                employee_id=emp.id, year=today.year, month=today.month
+            ).first()
+            if not ack:
+                awaiting_signature += 1
+                continue
+            final = TimeReportFinalization.query.filter_by(
+                employee_id=emp.id, year=today.year, month=today.month
+            ).first()
+            if not final:
+                awaiting_validation += 1
+
+        if open_month:
+            add("closing", f"{open_month} competência(s) ainda aberta(s)",
+                f"Competência {today.strftime('%m/%Y')} ainda precisa ser fechada.",
+                "rh.time_closing", "normal", month=today.strftime("%Y-%m"))
+        if awaiting_signature:
+            add("signature", f"{awaiting_signature} fechamento(s) aguardando assinatura",
+                "Os colaboradores ainda precisam conferir e assinar seus relatórios.",
+                "rh.time_closing", "normal", month=today.strftime("%Y-%m"))
+        if awaiting_validation:
+            add("validation", f"{awaiting_validation} assinatura(s) para validar",
+                "O colaborador já assinou; falta a validação final do RH.",
+                "rh.time_closing", "high", month=today.strftime("%Y-%m"))
+
+        access_pending = Employee.query.filter(
+            Employee.is_active.is_(True),
+            Employee.point_pin_hash.is_(None),
+        ).count()
+        if access_pending:
+            add("access", f"{access_pending} colaborador(es) sem PIN de ponto",
+                "Configure o PIN para liberar marcações e assinaturas eletrônicas.",
+                "rh.pending_center", "normal")
+
+    elif current_user.employee:
+        emp = current_user.employee
+
+        closures = TimePeriodClosure.query.filter_by(
+            employee_id=emp.id, status="closed"
+        ).order_by(TimePeriodClosure.year.desc(), TimePeriodClosure.month.desc()).all()
+        unack = [
+            c for c in closures
+            if not TimeReportAcknowledgement.query.filter_by(
+                employee_id=emp.id, year=c.year, month=c.month
+            ).first()
+        ]
+        if unack:
+            latest = unack[0]
+            add("signature", f"Seu fechamento de {latest.month:02d}/{latest.year} aguarda assinatura",
+                "Abra o espelho mensal, confira os dados e assine com seu PIN.",
+                "main.dashboard", "high")
+
+        unread_payslips = Payslip.query.filter(
+            Payslip.employee_id == emp.id,
+            Payslip.employee_viewed_at.is_(None),
+        ).count()
+        if unread_payslips:
+            add("payslip", f"{unread_payslips} holerite(s) ainda não visualizado(s)",
+                "Há novos documentos de pagamento disponíveis para consulta.",
+                "rh.payslips", "normal")
+
+        pending_requests = Request.query.filter_by(
+            employee_id=emp.id, status="pending"
+        ).count()
+        if pending_requests:
+            add("request", f"{pending_requests} solicitação(ões) em análise",
+                "Acompanhe o andamento das suas solicitações.",
+                "rh.requests_page", "normal")
+
+        next_vacation = VacationSchedule.query.filter(
+            VacationSchedule.employee_id == emp.id,
+            VacationSchedule.status == "planned",
+            VacationSchedule.planned_start >= today,
+        ).order_by(VacationSchedule.planned_start.asc()).first()
+        if next_vacation and (next_vacation.planned_start - today).days <= 30:
+            add("vacation", "Suas férias estão próximas",
+                f"Início previsto em {next_vacation.planned_start.strftime('%d/%m/%Y')}.",
+                "rh.employee_detail", "normal", employee_id=emp.id)
+
+    priority_order = {"high": 0, "normal": 1}
+    items.sort(key=lambda item: priority_order.get(item["priority"], 9))
+    return items[:limit] if limit else items
+
+
+@bp.app_context_processor
+def inject_portal_notifications():
+    if not current_user.is_authenticated:
+        return {"portal_notification_count": 0, "portal_notifications_preview": []}
+    items = _notification_items()
+    return {
+        "portal_notification_count": len(items),
+        "portal_notifications_preview": items[:5],
+    }
+
+
+@bp.route("/notifications")
+@login_required
+def notifications_center():
+    return render_template(
+        "notifications.html",
+        notifications=_notification_items(),
+    )
+
+
+@bp.route("/calendar")
+@login_required
+@roles_required(ROLE_ADMIN)
+def hr_calendar():
+    raw_month = (request.args.get("month") or today_local().strftime("%Y-%m")).strip()
+    try:
+        year, month = [int(x) for x in raw_month.split("-", 1)]
+        if month < 1 or month > 12:
+            raise ValueError
+    except (ValueError, TypeError):
+        year, month = today_local().year, today_local().month
+
+    first_day = date(year, month, 1)
+    last_day = date(year, month, calendar.monthrange(year, month)[1])
+
+    events_by_day = {day: [] for day in range(1, last_day.day + 1)}
+
+    vacations = VacationSchedule.query.filter(
+        VacationSchedule.status == "planned",
+        VacationSchedule.planned_start <= last_day,
+    ).order_by(VacationSchedule.planned_start.asc()).all()
+    for item in vacations:
+        return_date = item.planned_return or (item.planned_start + timedelta(days=max(item.days - 1, 0)))
+        start = max(item.planned_start, first_day)
+        end = min(return_date, last_day)
+        cursor = start
+        while cursor <= end:
+            events_by_day[cursor.day].append({
+                "type": "vacation",
+                "label": f"Férias · {item.employee.full_name}",
+            })
+            cursor += timedelta(days=1)
+
+    active_employees = Employee.query.filter_by(is_active=True).order_by(Employee.full_name).all()
+    for emp in active_employees:
+        if emp.birth_date and emp.birth_date.month == month:
+            day = min(emp.birth_date.day, last_day.day)
+            events_by_day[day].append({"type": "birthday", "label": f"Aniversário · {emp.full_name}"})
+        if emp.admission_date and emp.admission_date.month == month:
+            day = min(emp.admission_date.day, last_day.day)
+            years = year - emp.admission_date.year
+            if years >= 1:
+                events_by_day[day].append({
+                    "type": "admission",
+                    "label": f"{years} ano(s) de casa · {emp.full_name}",
+                })
+
+    weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(year, month)
+    previous_month = (first_day - timedelta(days=1)).strftime("%Y-%m")
+    next_month = (last_day + timedelta(days=1)).strftime("%Y-%m")
+
+    return render_template(
+        "hr_calendar.html",
+        year=year,
+        month=month,
+        month_value=f"{year:04d}-{month:02d}",
+        month_label=_month_name_pt(month),
+        weeks=weeks,
+        events_by_day=events_by_day,
+        previous_month=previous_month,
+        next_month=next_month,
+        today=today_local(),
+    )
+
+
+@bp.route("/reports")
+@login_required
+@roles_required(ROLE_ADMIN)
+def reports_center():
+    return render_template("reports_center.html", today=today_local())
+
+
+@bp.route("/reports/employees.xlsx")
+@login_required
+@roles_required(ROLE_ADMIN)
+def report_employees_xlsx():
+    employees = Employee.query.order_by(Employee.full_name.asc()).all()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Colaboradores"
+    ws.append([
+        "Nome", "CPF", "Matrícula", "Cargo", "Setor", "Projeto",
+        "Admissão", "Contrato", "Carga semanal", "Status", "E-mail"
+    ])
+    for emp in employees:
+        ws.append([
+            emp.full_name,
+            emp.cpf,
+            emp.registration or "",
+            emp.job_title,
+            emp.department,
+            emp.project,
+            emp.admission_date.strftime("%d/%m/%Y") if emp.admission_date else "",
+            emp.contract_type or "",
+            emp.weekly_hours,
+            "Ativo" if emp.is_active else "Inativo",
+            emp.user.email if emp.user else "",
+        ])
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    log_action("exportou relatório de colaboradores", "report", None, f"{len(employees)} registros")
+    db.session.commit()
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"colaboradores-{today_local().strftime('%Y-%m-%d')}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@bp.route("/reports/bank.xlsx")
+@login_required
+@roles_required(ROLE_ADMIN)
+def report_bank_xlsx():
+    employees = Employee.query.filter_by(is_active=True).order_by(Employee.full_name.asc()).all()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Banco de Horas"
+    ws.append(["Colaborador", "Cargo", "Setor", "Projeto", "Saldo em minutos", "Saldo HH:MM"])
+    for emp in employees:
+        minutes = int(emp.bank_minutes or 0)
+        sign = "-" if minutes < 0 else ""
+        absolute = abs(minutes)
+        hhmm = f"{sign}{absolute // 60:02d}:{absolute % 60:02d}"
+        ws.append([emp.full_name, emp.job_title, emp.department, emp.project, minutes, hhmm])
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    log_action("exportou relatório de banco de horas", "report", None, f"{len(employees)} colaboradores ativos")
+    db.session.commit()
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"banco-de-horas-{today_local().strftime('%Y-%m-%d')}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+
 @bp.route("/pending-center")
 @login_required
 @roles_required(ROLE_ADMIN)

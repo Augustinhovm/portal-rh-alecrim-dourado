@@ -254,3 +254,7 @@ Corrige a exibição da foto do colaborador no círculo do cabeçalho. A URL pas
 
 ## V9.0 — Dashboard Executivo do RH, Central de Pendências e Ficha 360°
 Esta versão reorganiza o Portal RH como uma plataforma integrada de gestão. O administrador passa a ter um Dashboard Executivo com indicadores operacionais e atalhos acionáveis, uma Central de Pendências que consolida solicitações, atestados, marcações incompletas, fechamentos, assinaturas, validações e problemas de acesso, e uma Ficha 360° do Colaborador com navegação rápida entre jornada, acesso, ponto, banco de horas, solicitações, férias, atestados, holerites e documentos.
+
+
+## V9.1 — Notificações, Calendário do RH e Central de Relatórios
+Adiciona uma Central de Notificações dinâmica com contador no cabeçalho, avisos administrativos e individuais, Calendário mensal do RH com férias, aniversários e tempo de casa, além de uma Central de Relatórios com exportações de quadro de colaboradores, banco de horas, registros de ponto, auditoria e atestados. As novas exportações ficam registradas em Auditoria.

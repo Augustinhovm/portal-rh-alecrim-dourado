@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Notificações · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <span class="executive-kicker">CENTRAL DE AVISOS</span>
+    <h1>Notificações</h1>
+    <p class="muted">Avisos gerados automaticamente a partir do que está acontecendo no Portal.</p>
+  </div>
+</div>
+
+<div class="panel notification-center">
+  {% for item in notifications %}
+    <a class="notification-row {% if item.priority == 'high' %}notification-high{% endif %}" href="{{item.url}}">
+      <span class="notification-dot"></span>
+      <div>
+        <strong>{{item.title}}</strong>
+        <small>{{item.description}}</small>
+      </div>
+      <span class="notification-arrow">›</span>
+    </a>
+  {% else %}
+    <div class="professional-empty">Nenhuma notificação no momento. Tudo está em dia.</div>
+  {% endfor %}
+</div>
+{% endblock %}

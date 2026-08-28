@@ -21,6 +21,12 @@
     <img src="{{ url_for('static', filename='img/alecrim-dourado-logo.png') }}" alt="Associação Alecrim Dourado">
   </a>
   <div class="topbar-right">
+    <a class="notification-bell" href="{{url_for('rh.notifications_center')}}" aria-label="Notificações" title="Notificações">
+      <span class="notification-bell-icon">🔔</span>
+      {% if portal_notification_count %}
+        <span class="notification-badge">{{portal_notification_count if portal_notification_count < 100 else '99+'}}</span>
+      {% endif %}
+    </a>
     {% if current_user.employee %}
       <a class="top-profile-avatar" href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}" title="{{ current_user.employee.full_name }}">
         {% if current_user.employee.profile_photo %}
@@ -64,6 +70,7 @@
     <section class="menu-group">
       <h3>Principal</h3>
       <a href="{{url_for('main.dashboard')}}">Início</a>
+      <a href="{{url_for('rh.notifications_center')}}">Notificações{% if portal_notification_count %} ({{portal_notification_count}}){% endif %}</a>
       {% if current_user.employee %}
         <a href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}">Meu perfil</a>
       {% endif %}
@@ -135,6 +142,8 @@
     <section class="menu-group">
       <h3>Gestão RH</h3>
       <a href="{{url_for('rh.pending_center')}}">Central de Pendências</a>
+      <a href="{{url_for('rh.hr_calendar')}}">Calendário do RH</a>
+      <a href="{{url_for('rh.reports_center')}}">Central de Relatórios</a>
       <a href="{{url_for('rh.time_closing')}}">Fechamento de ponto</a>
       <a href="{{url_for('rh.bank_statement')}}">Extrato de banco de horas</a>
       <a href="{{url_for('rh.certificates_manage')}}">Gestão de atestados</a>
