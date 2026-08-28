@@ -2301,3 +2301,32 @@ body.portal-login .auth-card {
   .security-kpis { grid-template-columns: 1fr; }
   .security-filters { grid-template-columns: 1fr; }
 }
+
+
+/* =========================================================
+   V8.7 - Validação final e reabertura de fechamento
+   ========================================================= */
+.closing-table-v87 { min-width: 1500px !important; }
+.closing-actions-v87 {
+  min-width: 250px;
+  display: grid;
+  gap: 9px;
+}
+.closing-approval,
+.closing-reopen {
+  margin: 0;
+}
+.closing-approval > summary,
+.closing-reopen > summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+.closing-flow-v87 {
+  grid-template-columns: repeat(5, minmax(0,1fr));
+}
+@media (max-width: 1180px) {
+  .closing-flow-v87 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 620px) {
+  .closing-flow-v87 { grid-template-columns: 1fr; }
+}

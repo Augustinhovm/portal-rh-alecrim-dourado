@@ -16,7 +16,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
 
@@ -2041,6 +2041,26 @@ def bank_statement():
             running += x["minutes"]; x["running"] = running
     return render_template("bank_statement.html", employees=employees, emp=emp, movements=movements)
 
+
+@bp.route("/my-time-reports")
+@login_required
+def my_time_reports():
+    if current_user.role == ROLE_ADMIN:
+        return redirect(url_for("rh.time_closing"))
+
+    emp = current_user.employee
+    if not emp:
+        abort(403)
+
+    rows = (
+        TimeReportFinalization.query
+        .filter_by(employee_id=emp.id)
+        .order_by(TimeReportFinalization.year.desc(), TimeReportFinalization.month.desc())
+        .all()
+    )
+    return render_template("my_time_reports.html", emp=emp, rows=rows)
+
+
 @bp.route("/time-closing")
 @login_required
 @roles_required(ROLE_ADMIN)
@@ -2052,8 +2072,9 @@ def time_closing():
     summaries=[]
     for emp in employees:
         s=_month_clock_summary(emp,year,month)
-        closure=TimePeriodClosure.query.filter_by(employee_id=emp.id,year=year,month=month,status="closed").first()
+        closure=TimePeriodClosure.query.filter_by(employee_id=emp.id,year=year,month=month).first()
         ack=TimeReportAcknowledgement.query.filter_by(employee_id=emp.id,year=year,month=month).first()
+        finalization=TimeReportFinalization.query.filter_by(employee_id=emp.id,year=year,month=month).first()
         signature_log = None
         if ack:
             signature_log = (AuditLog.query
@@ -2065,6 +2086,7 @@ def time_closing():
             "summary": s,
             "closure": closure,
             "ack": ack,
+            "finalization": finalization,
             "signature_log": signature_log,
         })
     return render_template("time_closing.html", rows=summaries, month_value=month_value, year=year, month=month)
@@ -2087,9 +2109,129 @@ def employee_time_close(employee_id):
     else:
         closure.status="closed"; closure.closed_at=now_local(); closure.closed_by=current_user.id
         closure.reason=(request.form.get("reason") or "").strip() or closure.reason
+        closure.reopened_at = None
+        closure.reopened_by = None
+        closure.employee_viewed_at = None
     log_action("fechou competência de ponto","time_period_closure",employee_id,f"{month:02d}/{year}")
     db.session.commit(); flash("Competência fechada.", "success")
     return redirect(url_for("rh.time_closing",month=f"{year:04d}-{month:02d}"))
+
+
+@bp.route("/employees/<int:employee_id>/time-closing/finalize", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def employee_time_finalize(employee_id):
+    emp = db.get_or_404(Employee, employee_id)
+    year = int(request.form["year"])
+    month = int(request.form["month"])
+    note = (request.form.get("note") or "").strip() or None
+
+    closure = TimePeriodClosure.query.filter_by(
+        employee_id=emp.id, year=year, month=month, status="closed"
+    ).first()
+    ack = TimeReportAcknowledgement.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+
+    if not closure or not ack:
+        flash("O fechamento precisa estar fechado e assinado pelo colaborador antes da validação final do RH.", "danger")
+        return redirect(url_for("rh.time_closing", month=f"{year:04d}-{month:02d}"))
+
+    item = TimeReportFinalization.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+
+    if not item:
+        item = TimeReportFinalization(
+            employee_id=emp.id,
+            year=year,
+            month=month,
+            approved_by=current_user.id,
+            note=note,
+        )
+        db.session.add(item)
+        db.session.flush()
+    else:
+        item.approved_at = now_local()
+        item.approved_by = current_user.id
+        item.note = note
+
+    log_action(
+        "validou fechamento mensal assinado",
+        "time_report_finalization",
+        item.id,
+        f"{emp.full_name}; competência {month:02d}/{year}; via assinada liberada ao colaborador",
+    )
+    log_security_event(
+        "time_report_finalized_by_rh",
+        severity="info",
+        user=current_user,
+        employee=emp,
+        details=f"RH validou e arquivou o espelho assinado de {month:02d}/{year}.",
+    )
+    db.session.commit()
+
+    flash("Fechamento validado pelo RH. A via assinada agora permanece disponível para o colaborador e para o RH.", "success")
+    return redirect(url_for("rh.time_closing", month=f"{year:04d}-{month:02d}"))
+
+
+@bp.route("/employees/<int:employee_id>/time-closing/reopen", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def employee_time_reopen(employee_id):
+    emp = db.get_or_404(Employee, employee_id)
+    year = int(request.form["year"])
+    month = int(request.form["month"])
+    reason = (request.form.get("reason") or "").strip()
+
+    if not reason:
+        flash("Informe a justificativa para reabrir a competência.", "danger")
+        return redirect(url_for("rh.time_closing", month=f"{year:04d}-{month:02d}"))
+
+    closure = TimePeriodClosure.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+    if not closure or closure.status != "closed":
+        flash("Essa competência não está fechada.", "danger")
+        return redirect(url_for("rh.time_closing", month=f"{year:04d}-{month:02d}"))
+
+    # Ao reabrir, qualquer ciência/validação anterior deixa de representar
+    # o conteúdo que poderá ser alterado. Exigimos novo ciclo após o próximo fechamento.
+    ack = TimeReportAcknowledgement.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+    finalization = TimeReportFinalization.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+
+    if finalization:
+        db.session.delete(finalization)
+    if ack:
+        db.session.delete(ack)
+
+    closure.status = "reopened"
+    closure.reopened_at = now_local()
+    closure.reopened_by = current_user.id
+    closure.employee_viewed_at = None
+
+    log_action(
+        "reabriu competência de ponto",
+        "time_period_closure",
+        closure.id,
+        f"{emp.full_name}; {month:02d}/{year}; motivo: {reason}",
+    )
+    log_security_event(
+        "time_period_reopened",
+        severity="warning",
+        user=current_user,
+        employee=emp,
+        details=f"Competência {month:02d}/{year} reaberta pelo RH. Motivo: {reason}",
+    )
+    db.session.commit()
+
+    flash("Competência reaberta. Ajustes podem ser realizados novamente; será necessária nova assinatura após o próximo fechamento.", "success")
+    return redirect(url_for("rh.time_closing", month=f"{year:04d}-{month:02d}"))
+
 
 @bp.route("/time-report/acknowledge", methods=["POST"])
 @login_required
@@ -2237,6 +2379,9 @@ def employee_time_report_pdf(employee_id):
     ).first()
 
     ack = TimeReportAcknowledgement.query.filter_by(
+        employee_id=emp.id, year=year, month=month
+    ).first()
+    finalization = TimeReportFinalization.query.filter_by(
         employee_id=emp.id, year=year, month=month
     ).first()
     report_version = (request.args.get("version") or "original").strip().lower()
@@ -2572,6 +2717,13 @@ def employee_time_report_pdf(employee_id):
             [Paragraph("Registro de acesso", small_bold), Paragraph(_pdf_text(signature_ip), small_style)],
             [Paragraph("Método de confirmação", small_bold), Paragraph("Sessão autenticada no Portal RH + senha pessoal de ponto (6 dígitos)", small_style)],
         ]
+        if finalization:
+            signature_data.extend([
+                [Paragraph("Validação final do RH", small_bold), Paragraph("VALIDADO E ARQUIVADO PELO RH", small_bold)],
+                [Paragraph("Validado em", small_bold), Paragraph(finalization.approved_at.strftime("%d/%m/%Y às %H:%M:%S"), small_style)],
+                [Paragraph("Responsável RH", small_bold), Paragraph(_pdf_text(finalization.approver.email if finalization.approver else "-"), small_style)],
+                [Paragraph("Observação RH", small_bold), Paragraph(_pdf_text(finalization.note or "Sem observações."), small_style)],
+            ])
         signature_table = Table(signature_data, colWidths=[55*mm, 145*mm])
         signature_table.setStyle(TableStyle([
             ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#D4B13F")),
@@ -2583,11 +2735,16 @@ def employee_time_report_pdf(employee_id):
         ]))
         story.append(signature_table)
         story.append(Spacer(1, 2 * mm))
-        story.append(Paragraph(
+        final_text = (
             "O colaborador declarou ter visualizado e conferido este espelho mensal, "
-            "registrando seu aceite eletrônico no Portal RH.",
-            note_style,
-        ))
+            "registrando seu aceite eletrônico no Portal RH."
+        )
+        if finalization:
+            final_text += (
+                " O RH conferiu a assinatura e validou o fechamento, mantendo esta via "
+                "disponível tanto para o colaborador quanto para o RH."
+            )
+        story.append(Paragraph(final_text, note_style))
     else:
         pending_signature = [
             [Paragraph("Status", small_bold), Paragraph("AGUARDANDO CIÊNCIA E ASSINATURA DO COLABORADOR", small_style)],
@@ -2696,6 +2853,8 @@ def security_center():
         "alterou marcação de ponto pelo RH",
         "excluiu marcação de ponto pelo RH",
         "assinou eletronicamente o espelho mensal de ponto e banco de horas",
+        "validou fechamento mensal assinado",
+        "reabriu competência de ponto",
         "anexou documento",
         "enviou atestado",
         "anexou holerite manualmente",

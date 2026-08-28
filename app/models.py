@@ -291,6 +291,23 @@ class TimePeriodClosure(db.Model):
     closer = db.relationship("User", foreign_keys=[closed_by])
     __table_args__ = (db.UniqueConstraint("employee_id", "year", "month", name="uq_time_period_employee_month"),)
 
+
+class TimeReportFinalization(db.Model):
+    """Validação final do RH após a assinatura eletrônica do colaborador."""
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    approved_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    approved_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    note = db.Column(db.String(255))
+    employee = db.relationship("Employee")
+    approver = db.relationship("User", foreign_keys=[approved_by])
+    __table_args__ = (
+        db.UniqueConstraint("employee_id", "year", "month", name="uq_time_final_employee_month"),
+    )
+
+
 class TimeReportAcknowledgement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)

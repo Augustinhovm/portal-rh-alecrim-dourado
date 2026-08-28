@@ -91,6 +91,13 @@
     </section>
     {% endif %}
 
+    {% if current_user.role != 'admin' and current_user.employee %}
+    <section class="menu-group">
+      <h3>Fechamentos mensais</h3>
+      <a href="{{url_for('rh.my_time_reports')}}">Meus fechamentos</a>
+    </section>
+    {% endif %}
+
     <section class="menu-group">
       <h3>Holerites</h3>
       {% if current_user.role=='admin' %}

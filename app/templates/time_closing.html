@@ -4,7 +4,7 @@
 <div class="heading">
   <div>
     <h1>Fechamento mensal do ponto</h1>
-    <p class="muted">Feche a competência, acompanhe a conferência do colaborador e arquive o PDF assinado.</p>
+    <p class="muted">Feche a competência, acompanhe a assinatura do colaborador, valide pelo RH e mantenha as duas vias arquivadas.</p>
   </div>
 </div>
 
@@ -19,20 +19,12 @@
 
 <div class="panel">
   <div class="table-wrap">
-    <table class="closing-table">
+    <table class="closing-table closing-table-v87">
       <tr>
-        <th>Colaborador</th>
-        <th>Previsto</th>
-        <th>Trabalhado</th>
-        <th>Abonado</th>
-        <th>Saldo jornada</th>
-        <th>Pendências</th>
-        <th>Fechamento</th>
-        <th>Relatório</th>
-        <th>Ciência / assinatura</th>
-        <th>Ação RH</th>
+        <th>Colaborador</th><th>Previsto</th><th>Trabalhado</th><th>Abonado</th>
+        <th>Saldo</th><th>Pendências</th><th>Situação</th><th>Documentos</th>
+        <th>Assinatura</th><th>Ação RH</th>
       </tr>
-
       {% for row in rows %}
       <tr>
         <td>
@@ -41,61 +33,57 @@
         </td>
         <td>{{row.summary.expected|minutes_hhmm}}</td>
         <td>{{row.summary.worked|minutes_hhmm}}</td>
-        <td><strong>{{row.summary.excused|minutes_hhmm}}</strong></td>
+        <td>{{row.summary.excused|minutes_hhmm}}</td>
         <td><strong class="{% if row.summary.balance >= 0 %}positive{% else %}negative{% endif %}">{{row.summary.balance|minutes_hhmm}}</strong></td>
+        <td>{% if row.summary.incomplete %}<span class="badge pending">{{row.summary.incomplete}} pendência(s)</span>{% else %}<span class="badge approved">Sem pendências</span>{% endif %}</td>
+
         <td>
-          {% if row.summary.incomplete %}
-            <span class="badge pending">{{row.summary.incomplete}} pendência(s)</span>
-          {% else %}
-            <span class="badge approved">Sem pendências</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if row.closure %}
+          {% if row.closure and row.closure.status=='closed' and row.finalization %}
+            <span class="badge approved">Finalizado pelo RH</span>
+            <br><small>{{row.finalization.approved_at.strftime('%d/%m/%Y %H:%M')}}</small>
+          {% elif row.closure and row.closure.status=='closed' %}
             <span class="badge approved">Fechado</span>
             <br><small>{{row.closure.closed_at.strftime('%d/%m/%Y %H:%M')}}</small>
-            {% if row.closure.reason %}<br><small>Obs.: {{row.closure.reason}}</small>{% endif %}
+          {% elif row.closure and row.closure.status=='reopened' %}
+            <span class="badge pending">Reaberto</span>
+            {% if row.closure.reopened_at %}<br><small>{{row.closure.reopened_at.strftime('%d/%m/%Y %H:%M')}}</small>{% endif %}
           {% else %}
             <span class="badge pending">Aberto</span>
           {% endif %}
         </td>
+
         <td class="closing-document-cell">
-          {% if row.closure %}
-            <a class="btn secondary compact-btn"
-               target="_blank" rel="noopener"
-               href="{{url_for('rh.employee_time_report_pdf',employee_id=row.emp.id,month='%04d-%02d'|format(year,month),version='original')}}">
-              PDF fechado
-            </a>
+          {% if row.closure and row.closure.status=='closed' %}
+            <a class="btn secondary compact-btn" target="_blank" rel="noopener"
+               href="{{url_for('rh.employee_time_report_pdf',employee_id=row.emp.id,month='%04d-%02d'|format(year,month),version='original')}}">PDF fechado</a>
             {% if row.ack %}
-              <a class="btn compact-btn"
-                 target="_blank" rel="noopener"
+              <a class="btn compact-btn" target="_blank" rel="noopener"
                  href="{{url_for('rh.employee_time_report_pdf',employee_id=row.emp.id,month='%04d-%02d'|format(year,month),version='signed')}}">
-                PDF assinado
+                {% if row.finalization %}PDF final validado{% else %}PDF assinado{% endif %}
               </a>
             {% endif %}
           {% else %}
-            <span class="muted">Feche a competência primeiro.</span>
+            <span class="muted">Sem PDF fechado ativo.</span>
           {% endif %}
         </td>
+
         <td>
-          {% if row.ack %}
-            <span class="badge approved">Conferido e assinado</span>
-            <br><small>{{row.ack.acknowledged_at.strftime('%d/%m/%Y %H:%M:%S')}}</small>
-            {% if row.signature_log and row.signature_log.ip_address %}
-              <br><small>Registro: {{row.signature_log.ip_address}}</small>
-            {% endif %}
-          {% elif row.closure and row.closure.employee_viewed_at %}
+          {% if row.finalization %}
+            <span class="badge approved">RH validou</span>
+            <br><small>Via definitiva liberada ao colaborador.</small>
+          {% elif row.ack %}
+            <span class="badge pending">Aguardando validação do RH</span>
+            <br><small>Assinado em {{row.ack.acknowledged_at.strftime('%d/%m/%Y %H:%M:%S')}}</small>
+          {% elif row.closure and row.closure.status=='closed' and row.closure.employee_viewed_at %}
             <span class="badge pending">Visualizado</span>
-            <br><small>Aguardando assinatura eletrônica</small>
-          {% elif row.closure %}
+            <br><small>Aguardando assinatura.</small>
+          {% elif row.closure and row.closure.status=='closed' %}
             <span class="badge pending">Aguardando ciência</span>
-            <br><small>Colaborador ainda não abriu o PDF.</small>
-          {% else %}
-            —
-          {% endif %}
+          {% else %}—{% endif %}
         </td>
-        <td>
-          {% if not row.closure %}
+
+        <td class="closing-actions-v87">
+          {% if not row.closure or row.closure.status=='reopened' %}
             <form method="post" action="{{url_for('rh.employee_time_close',employee_id=row.emp.id)}}" class="closing-action-form">
               <input type="hidden" name="year" value="{{year}}">
               <input type="hidden" name="month" value="{{month}}">
@@ -105,8 +93,29 @@
               {% endif %}
               <button type="submit">Fechar competência</button>
             </form>
-          {% else %}
-            <span class="muted">Fechamento concluído</span>
+          {% elif row.closure.status=='closed' %}
+            {% if row.ack and not row.finalization %}
+              <details class="admin-tool closing-approval">
+                <summary>Validar assinatura</summary>
+                <form method="post" action="{{url_for('rh.employee_time_finalize',employee_id=row.emp.id)}}" class="mini-form">
+                  <input type="hidden" name="year" value="{{year}}">
+                  <input type="hidden" name="month" value="{{month}}">
+                  <input name="note" placeholder="Observação do RH (opcional)">
+                  <button type="submit">Validar e arquivar</button>
+                </form>
+              </details>
+            {% endif %}
+
+            <details class="admin-tool danger-detail closing-reopen">
+              <summary>Reabrir competência</summary>
+              <form method="post" action="{{url_for('rh.employee_time_reopen',employee_id=row.emp.id)}}" class="mini-form">
+                <input type="hidden" name="year" value="{{year}}">
+                <input type="hidden" name="month" value="{{month}}">
+                <input name="reason" required placeholder="Motivo obrigatório da reabertura">
+                <small class="muted">Se houver assinatura, ela será invalidada e será necessário novo aceite após o próximo fechamento.</small>
+                <button type="submit" class="danger-btn">Confirmar reabertura</button>
+              </form>
+            </details>
           {% endif %}
         </td>
       </tr>
@@ -116,12 +125,13 @@
 </div>
 
 <div class="panel closing-explanation">
-  <h2>Fluxo do fechamento</h2>
-  <div class="closing-flow">
-    <div><strong>1. RH fecha</strong><small>O PDF fechado fica disponível para conferência.</small></div>
-    <div><strong>2. Colaborador confere</strong><small>Abre o espelho mensal e revisa ponto e banco de horas.</small></div>
-    <div><strong>3. Assinatura eletrônica</strong><small>Confirma o aceite usando sua senha pessoal de ponto.</small></div>
-    <div><strong>4. RH arquiva</strong><small>O PDF assinado aparece automaticamente nesta tela.</small></div>
+  <h2>Novo fluxo do fechamento</h2>
+  <div class="closing-flow closing-flow-v87">
+    <div><strong>1. RH fecha</strong><small>O relatório fechado é liberado ao colaborador.</small></div>
+    <div><strong>2. Colaborador assina</strong><small>Confere o PDF e confirma com o PIN pessoal.</small></div>
+    <div><strong>3. RH valida</strong><small>O RH abre o PDF assinado e clica em Validar e arquivar.</small></div>
+    <div><strong>4. Duas vias permanentes</strong><small>O RH e o colaborador mantêm acesso ao PDF final validado.</small></div>
+    <div><strong>Reabertura</strong><small>O RH pode reabrir com justificativa; assinaturas anteriores são invalidadas.</small></div>
   </div>
 </div>
 {% endblock %}

@@ -230,3 +230,7 @@ Corrige falso 403 no POST de login causado pela comparação absoluta de Origin 
 
 ## V8.6 — Central de Segurança do RH
 Cria uma área exclusiva do administrador para monitorar autenticações, logins recusados, bloqueios, tentativas de PIN, acessos a holerites/atestados/documentos, redefinições de credenciais, assinaturas eletrônicas e ações críticas de auditoria. Os eventos de segurança passam a ser persistidos no PostgreSQL, inclusive quando não existe usuário autenticado.
+
+
+## V8.7 — Duas vias do fechamento e reabertura de competência
+Após a assinatura eletrônica do colaborador, o RH passa a validar o fechamento final. Somente após essa validação a via definitiva fica arquivada permanentemente na área "Meus fechamentos" do colaborador, enquanto o RH mantém acesso à mesma versão final. O PDF assinado passa a registrar também a validação final do RH. O RH pode reabrir uma competência fechada mediante justificativa obrigatória; ao reabrir, ciência e validação anteriores são invalidadas e será exigido novo ciclo de fechamento e assinatura.

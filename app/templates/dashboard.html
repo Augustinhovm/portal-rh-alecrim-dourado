@@ -129,6 +129,18 @@
         </div>
         {% endfor %}
 
+        {% if data.finalized_time_reports %}
+        {% set latest_final = data.finalized_time_reports[0] %}
+        <a class="notice-row notice-link" href="{{url_for('rh.my_time_reports')}}">
+          <span class="notice-icon notice-green">✓</span>
+          <div class="notice-copy">
+            <strong>Sua via assinada de {{'%02d'|format(latest_final.month)}}/{{latest_final.year}} está arquivada</strong>
+            <small>Validada pelo RH em {{latest_final.approved_at.strftime('%d/%m/%Y %H:%M')}}. Você pode acessá-la a qualquer momento.</small>
+          </div>
+          <span class="notice-chevron">›</span>
+        </a>
+        {% endif %}
+
         {% if data.latest_unread_payslip %}
         <a class="notice-row notice-link" href="{{url_for('rh.payslips')}}">
           <span class="notice-icon notice-gold">R$</span>
@@ -162,7 +174,7 @@
         </a>
         {% endif %}
 
-        {% if not data.closed_unacknowledged and not data.latest_unread_payslip and not data.pending_certificate_count and not data.pending %}
+        {% if not data.closed_unacknowledged and not data.finalized_time_reports and not data.latest_unread_payslip and not data.pending_certificate_count and not data.pending %}
         <div class="notice-row">
           <span class="notice-icon notice-green">✓</span>
           <div class="notice-copy"><strong>Nenhuma pendência no momento</strong><small>Seu portal está em dia.</small></div>

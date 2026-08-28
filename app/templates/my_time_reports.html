@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Meus fechamentos · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <h1>Meus fechamentos mensais</h1>
+    <p class="muted">Aqui ficam suas vias definitivas de ponto e banco de horas já assinadas e validadas pelo RH.</p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="table-wrap">
+    <table>
+      <tr><th>Competência</th><th>Validação do RH</th><th>Responsável RH</th><th>Observação</th><th>Minha via</th></tr>
+      {% for item in rows %}
+      <tr>
+        <td><strong>{{'%02d'|format(item.month)}}/{{item.year}}</strong></td>
+        <td>{{item.approved_at.strftime('%d/%m/%Y %H:%M:%S')}}</td>
+        <td>{{item.approver.email if item.approver else '—'}}</td>
+        <td>{{item.note or 'Sem observações.'}}</td>
+        <td>
+          <a class="btn" target="_blank" rel="noopener"
+             href="{{url_for('rh.employee_time_report_pdf',employee_id=emp.id,month='%04d-%02d'|format(item.year,item.month),version='signed')}}">
+            Abrir PDF assinado
+          </a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Nenhum fechamento finalizado pelo RH ainda.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <strong>Como funciona</strong>
+  <p class="muted">Depois que você assina o espelho mensal, o RH confere e valida o documento. A partir dessa validação, a sua via permanece disponível nesta área.</p>
+</div>
+{% endblock %}

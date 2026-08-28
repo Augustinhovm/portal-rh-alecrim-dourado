@@ -2,7 +2,7 @@ from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from .extensions import db
-from .models import Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, VacationSchedule, BankHourAdjustment, WeekendDuty, Payslip, ROLE_ADMIN, ROLE_MANAGER
+from .models import Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, VacationSchedule, BankHourAdjustment, WeekendDuty, Payslip, ROLE_ADMIN, ROLE_MANAGER
 from .timezone import today_local
 
 bp = Blueprint("main", __name__)
@@ -128,6 +128,13 @@ def dashboard():
             for c in closures:
                 if not TimeReportAcknowledgement.query.filter_by(employee_id=emp.id,year=c.year,month=c.month).first():
                     data["closed_unacknowledged"].append(c)
+            data["finalized_time_reports"] = (
+                TimeReportFinalization.query
+                .filter_by(employee_id=emp.id)
+                .order_by(TimeReportFinalization.year.desc(), TimeReportFinalization.month.desc())
+                .limit(12)
+                .all()
+            )
             data["next_vacation"] = (VacationSchedule.query
                 .filter(
                     VacationSchedule.employee_id == emp.id,
