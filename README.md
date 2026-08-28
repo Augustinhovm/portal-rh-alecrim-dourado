@@ -214,3 +214,7 @@ O fechamento mensal passa a exibir no RH o PDF fechado, a situação de leitura 
 
 ## V8.3 — Abono de horas por atestado
 O RH passa a informar, em cada atestado recebido, a quantidade exata de horas e minutos a serem abonados. O abono fica vinculado ao atestado e ao colaborador, aparece para o colaborador, entra no fechamento mensal e é exibido no PDF de ponto/banco de horas. As horas abonadas justificam a jornada prevista, mas não geram crédito de banco de horas. Em atestados com vários dias, o total informado é distribuído cronologicamente pelos dias úteis cobertos, limitado à jornada diária prevista.
+
+
+## V8.4 — Plantões executados e intervalo individual
+O perfil individual do colaborador passa a permitir a configuração de início e fim do intervalo de jornada. Esse período é descontado da jornada prevista nos cálculos mensais. O RH também pode registrar Plantão executado em sábado ou domingo, com duração padrão de 14h. O plantão gera crédito imediato no banco de horas, possui histórico próprio e entra no dashboard, no extrato do banco e no PDF mensal com a descrição Plantão executado. Registros duplicados para o mesmo colaborador/data são bloqueados e a remoção exige justificativa, revertendo automaticamente o crédito.

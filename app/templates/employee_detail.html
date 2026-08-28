@@ -29,6 +29,55 @@
   <div class="card bank-highlight"><span>Saldo disponível</span><strong>{{ bank_summary.available|minutes_hhmm }}</strong></div>
 </div>
 
+<div class="panel" id="jornada-individual">
+  <div class="section-heading">
+    <div>
+      <h2>Jornada individual</h2>
+      <p class="muted">Horários de referência utilizados para calcular a jornada prevista do colaborador.</p>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <span>Entrada prevista</span>
+      <strong class="card-value-small">{{emp.standard_start.strftime('%H:%M') if emp.standard_start else '—'}}</strong>
+    </div>
+    <div class="card">
+      <span>Saída prevista</span>
+      <strong class="card-value-small">{{emp.standard_end.strftime('%H:%M') if emp.standard_end else '—'}}</strong>
+    </div>
+    <div class="card">
+      <span>Início do intervalo</span>
+      <strong class="card-value-small">{{work_schedule.interval_start.strftime('%H:%M') if work_schedule and work_schedule.interval_start else 'Padrão'}}</strong>
+    </div>
+    <div class="card">
+      <span>Fim do intervalo</span>
+      <strong class="card-value-small">{{work_schedule.interval_end.strftime('%H:%M') if work_schedule and work_schedule.interval_end else 'Padrão'}}</strong>
+    </div>
+  </div>
+
+  {% if current_user.role == 'admin' %}
+  <details class="admin-tool" open>
+    <summary>Definir horário individual de intervalo</summary>
+    <form method="post" action="{{url_for('rh.employee_work_schedule',employee_id=emp.id)}}" class="form-grid compact-form">
+      <label>Início do intervalo
+        <input type="time" name="interval_start"
+               value="{{work_schedule.interval_start.strftime('%H:%M') if work_schedule and work_schedule.interval_start else ''}}">
+      </label>
+      <label>Fim do intervalo
+        <input type="time" name="interval_end"
+               value="{{work_schedule.interval_end.strftime('%H:%M') if work_schedule and work_schedule.interval_end else ''}}">
+      </label>
+      <p class="muted full">
+        O Portal descontará exatamente esse período da jornada prevista. Se ambos os campos ficarem vazios,
+        permanece a regra padrão do sistema.
+      </p>
+      <div class="full"><button type="submit">Salvar horário de intervalo</button></div>
+    </form>
+  </details>
+  {% endif %}
+</div>
+
 
 {% if current_user.role == 'admin' %}
 <div class="panel" id="acesso">
@@ -89,6 +138,68 @@
     </form>
   </details>
   {% endif %}
+
+  <div class="duty-module" id="plantoes">
+    <div class="section-heading">
+      <div>
+        <h3>Plantões executados</h3>
+        <p class="muted">Plantões de sábado ou domingo são creditados diretamente no banco de horas.</p>
+      </div>
+    </div>
+
+    {% if current_user.role == 'admin' %}
+    <details class="admin-tool duty-tool" open>
+      <summary>Registrar plantão executado</summary>
+      <form method="post" action="{{url_for('rh.employee_weekend_duty',employee_id=emp.id)}}" class="form-grid compact-form">
+        <label>Data do plantão
+          <input type="date" name="duty_date" required>
+        </label>
+        <label>Horas
+          <input type="number" name="hours" min="0" max="24" value="14" required>
+        </label>
+        <label>Minutos
+          <input type="number" name="minutes" min="0" max="59" value="0" required>
+        </label>
+        <label class="full">Observação
+          <input name="note" placeholder="Ex.: plantão online de final de semana">
+        </label>
+        <p class="muted full">
+          Ao salvar, o crédito entra imediatamente no saldo realizado do banco de horas com a descrição
+          <strong>Plantão executado</strong>. O padrão está configurado em 14h.
+        </p>
+        <div class="full"><button type="submit">Registrar plantão e creditar banco</button></div>
+      </form>
+    </details>
+    {% endif %}
+
+    <div class="table-wrap">
+      <table>
+        <tr><th>Data</th><th>Dia</th><th>Duração</th><th>Descrição</th><th>Registrado por</th>{% if current_user.role=='admin' %}<th>Ação</th>{% endif %}</tr>
+        {% for duty in weekend_duties %}
+        <tr>
+          <td>{{duty.duty_date.strftime('%d/%m/%Y')}}</td>
+          <td>{{'Sábado' if duty.duty_date.weekday()==5 else 'Domingo'}}</td>
+          <td><strong class="positive">{{duty.minutes|minutes_hhmm}}</strong></td>
+          <td><strong>Plantão executado</strong>{% if duty.note %}<br><small>{{duty.note}}</small>{% endif %}</td>
+          <td>{{duty.creator.email}}</td>
+          {% if current_user.role=='admin' %}
+          <td>
+            <details class="row-action danger-detail">
+              <summary>Remover</summary>
+              <form method="post" action="{{url_for('rh.weekend_duty_delete',duty_id=duty.id)}}" class="mini-form">
+                <input name="reason" placeholder="Motivo da remoção" required>
+                <button type="submit" class="danger-btn">Remover e reverter crédito</button>
+              </form>
+            </details>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="6">Nenhum plantão executado registrado.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
 
   <h3>Movimentações administrativas</h3>
   <div class="table-wrap"><table>

@@ -2135,3 +2135,21 @@ body.portal-login .auth-card {
     min-width: 275px;
   }
 }
+
+
+/* =========================================================
+   V8.4 - Jornada individual e plantões
+   ========================================================= */
+.duty-module {
+  margin: 22px 0 28px;
+  padding: 18px;
+  border: 1px solid var(--aad-border);
+  border-radius: 14px;
+  background: #fffdf7;
+}
+.duty-module h3 { margin-top: 0; }
+.duty-tool { margin: 12px 0 18px; }
+#jornada-individual .cards {
+  margin-top: 12px;
+  margin-bottom: 14px;
+}

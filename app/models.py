@@ -61,6 +61,47 @@ class Employee(db.Model):
     def check_point_pin(self, pin):
         return bool(self.point_pin_hash) and check_password_hash(self.point_pin_hash, pin)
 
+
+class EmployeeWorkSchedule(db.Model):
+    """Configuração complementar de jornada sem alterar a tabela Employee existente."""
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(
+        db.Integer,
+        db.ForeignKey("employee.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    interval_start = db.Column(db.Time)
+    interval_end = db.Column(db.Time)
+    updated_at = db.Column(db.DateTime, default=now_local, onupdate=now_local, nullable=False)
+    updated_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    employee = db.relationship(
+        "Employee",
+        backref=db.backref("work_schedule", uselist=False, cascade="all, delete-orphan"),
+    )
+    updater = db.relationship("User", foreign_keys=[updated_by])
+
+
+class WeekendDuty(db.Model):
+    """Plantão executado e creditado diretamente no banco de horas."""
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    duty_date = db.Column(db.Date, nullable=False, index=True)
+    minutes = db.Column(db.Integer, nullable=False, default=840)
+    note = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    employee = db.relationship("Employee")
+    creator = db.relationship("User", foreign_keys=[created_by])
+
+    __table_args__ = (
+        db.UniqueConstraint("employee_id", "duty_date", name="uq_weekend_duty_employee_date"),
+    )
+
+
 class TimeClock(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)

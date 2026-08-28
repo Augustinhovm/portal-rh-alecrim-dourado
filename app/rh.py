@@ -16,7 +16,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, TimeClock, MedicalCertificate, MedicalCertificateAllowance, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, Request, Document, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action
 from .timezone import now_local, today_local
 
@@ -247,15 +247,32 @@ def _time_report_signature_code(ack, emp):
 
 
 def _expected_daily_minutes(emp):
-    """Jornada diária de referência. Usa horários padrão e, na ausência, carga semanal/5."""
+    """
+    Jornada diária de referência.
+    Quando o RH cadastrou um intervalo individual, desconta exatamente esse período.
+    Na ausência, mantém a regra anterior de 1h para jornadas superiores a 6h.
+    """
     if emp.standard_start and emp.standard_end:
         start = datetime.combine(today_local(), emp.standard_start)
         end = datetime.combine(today_local(), emp.standard_end)
         minutes = int((end - start).total_seconds() // 60)
-        # Considera 1h de intervalo padrão quando a jornada atravessa o período de almoço.
-        if minutes > 6 * 60:
+
+        schedule = emp.work_schedule
+        if (
+            schedule
+            and schedule.interval_start
+            and schedule.interval_end
+            and schedule.interval_end > schedule.interval_start
+        ):
+            interval_start_dt = datetime.combine(today_local(), schedule.interval_start)
+            interval_end_dt = datetime.combine(today_local(), schedule.interval_end)
+            interval_minutes = int((interval_end_dt - interval_start_dt).total_seconds() // 60)
+            minutes -= max(interval_minutes, 0)
+        elif minutes > 6 * 60:
             minutes -= 60
+
         return max(minutes, 0)
+
     return int(round(float(emp.weekly_hours or 0) * 60 / 5))
 
 
@@ -740,11 +757,13 @@ def employee_detail(employee_id):
     payslips = Payslip.query.filter_by(employee_id=emp.id).order_by(Payslip.year.desc(), Payslip.month.desc()).all()
     clocks = TimeClock.query.filter_by(employee_id=emp.id).order_by(TimeClock.punched_at.desc()).limit(120).all()
     bank_adjustments = BankHourAdjustment.query.filter_by(employee_id=emp.id).order_by(BankHourAdjustment.created_at.desc()).limit(100).all()
+    weekend_duties = WeekendDuty.query.filter_by(employee_id=emp.id).order_by(WeekendDuty.duty_date.desc()).limit(100).all()
+    work_schedule = emp.work_schedule
     bank_summary = _bank_summary(emp)
     vacations = Vacation.query.filter_by(employee_id=emp.id).order_by(Vacation.start_date.desc()).all()
     vacation_schedules = VacationSchedule.query.filter_by(employee_id=emp.id).order_by(VacationSchedule.planned_start.asc()).all()
     vacation_summary = _vacation_entitlement(emp)
-    return render_template("employee_detail.html", emp=emp, certs=certs, reqs=reqs, docs=docs, payslips=payslips, clocks=clocks, bank_adjustments=bank_adjustments, bank_summary=bank_summary, vacations=vacations, vacation_schedules=vacation_schedules, vacation_summary=vacation_summary, current_month=today_local().strftime("%Y-%m"))
+    return render_template("employee_detail.html", emp=emp, certs=certs, reqs=reqs, docs=docs, payslips=payslips, clocks=clocks, bank_adjustments=bank_adjustments, weekend_duties=weekend_duties, work_schedule=work_schedule, bank_summary=bank_summary, vacations=vacations, vacation_schedules=vacation_schedules, vacation_summary=vacation_summary, current_month=today_local().strftime("%Y-%m"), today_iso=today_local().isoformat())
 
 
 @bp.route("/employees/<int:employee_id>/reset-password", methods=["POST"])
@@ -782,6 +801,154 @@ def employee_reset_point_pin(employee_id):
     db.session.commit()
     flash("Senha de ponto redefinida com sucesso.", "success")
     return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#acesso")
+
+
+
+@bp.route("/employees/<int:employee_id>/work-schedule", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def employee_work_schedule(employee_id):
+    emp = db.get_or_404(Employee, employee_id)
+    interval_start = parse_time(request.form.get("interval_start"))
+    interval_end = parse_time(request.form.get("interval_end"))
+
+    if (interval_start and not interval_end) or (interval_end and not interval_start):
+        flash("Informe o início e o fim do intervalo.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#jornada-individual")
+
+    if interval_start and interval_end and interval_end <= interval_start:
+        flash("O fim do intervalo deve ser posterior ao início.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#jornada-individual")
+
+    item = emp.work_schedule
+    if not item:
+        item = EmployeeWorkSchedule(
+            employee_id=emp.id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            updated_by=current_user.id,
+        )
+        db.session.add(item)
+        db.session.flush()
+    else:
+        item.interval_start = interval_start
+        item.interval_end = interval_end
+        item.updated_by = current_user.id
+        item.updated_at = now_local()
+
+    interval_text = (
+        f"{interval_start.strftime('%H:%M')} às {interval_end.strftime('%H:%M')}"
+        if interval_start and interval_end else "sem intervalo individual definido"
+    )
+    log_action(
+        "alterou horário de intervalo do colaborador",
+        "employee_work_schedule",
+        item.id,
+        f"{emp.full_name}; {interval_text}",
+    )
+    db.session.commit()
+    flash("Horário de intervalo atualizado.", "success")
+    return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#jornada-individual")
+
+
+@bp.route("/employees/<int:employee_id>/weekend-duty", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def employee_weekend_duty(employee_id):
+    emp = db.get_or_404(Employee, employee_id)
+    duty_date = parse_date(request.form.get("duty_date"))
+
+    try:
+        hours = max(int(request.form.get("hours") or 14), 0)
+        minutes_part = max(min(int(request.form.get("minutes") or 0), 59), 0)
+    except (TypeError, ValueError):
+        flash("Informe uma duração válida para o plantão.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#plantoes")
+
+    total = hours * 60 + minutes_part
+    note = (request.form.get("note") or "").strip() or None
+
+    if not duty_date:
+        flash("Informe a data do plantão.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#plantoes")
+
+    if duty_date.weekday() not in (5, 6):
+        flash("A função Plantão executado aceita datas de sábado ou domingo.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#plantoes")
+
+    if total <= 0 or total > 24 * 60:
+        flash("Informe uma duração de plantão entre 00:01 e 24:00.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#plantoes")
+
+    existing = WeekendDuty.query.filter_by(employee_id=emp.id, duty_date=duty_date).first()
+    if existing:
+        flash("Já existe um plantão registrado para este colaborador nessa data.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#plantoes")
+
+    old_balance = int(emp.bank_minutes or 0)
+    emp.bank_minutes = old_balance + total
+
+    duty = WeekendDuty(
+        employee_id=emp.id,
+        duty_date=duty_date,
+        minutes=total,
+        note=note,
+        created_by=current_user.id,
+    )
+    db.session.add(duty)
+    db.session.flush()
+
+    log_action(
+        "registrou plantão executado",
+        "weekend_duty",
+        duty.id,
+        (
+            f"{emp.full_name}; {duty_date.strftime('%d/%m/%Y')}; "
+            f"{total // 60:02d}:{total % 60:02d}; "
+            f"banco {old_balance} min -> {emp.bank_minutes} min; "
+            f"observação: {note or '-'}"
+        ),
+    )
+    db.session.commit()
+
+    flash(
+        f"Plantão executado registrado. Crédito de {total // 60:02d}:{total % 60:02d} "
+        "adicionado ao banco de horas.",
+        "success",
+    )
+    return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#plantoes")
+
+
+@bp.route("/weekend-duty/<int:duty_id>/delete", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def weekend_duty_delete(duty_id):
+    duty = db.get_or_404(WeekendDuty, duty_id)
+    emp = duty.employee
+    reason = (request.form.get("reason") or "").strip()
+
+    if not reason:
+        flash("Informe o motivo para remover o plantão.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#plantoes")
+
+    old_balance = int(emp.bank_minutes or 0)
+    emp.bank_minutes = old_balance - int(duty.minutes or 0)
+
+    log_action(
+        "removeu plantão executado",
+        "weekend_duty",
+        duty.id,
+        (
+            f"{emp.full_name}; {duty.duty_date.strftime('%d/%m/%Y')}; "
+            f"reversão {-int(duty.minutes or 0)} min; "
+            f"banco {old_balance} min -> {emp.bank_minutes} min; motivo: {reason}"
+        ),
+    )
+    db.session.delete(duty)
+    db.session.commit()
+
+    flash("Plantão removido e crédito revertido do banco de horas.", "success")
+    return redirect(url_for("rh.employee_detail", employee_id=emp.id) + "#plantoes")
 
 
 @bp.route("/employees/<int:employee_id>/bank-adjustment", methods=["POST"])
@@ -1640,12 +1807,21 @@ def bank_statement():
     movements = []
     if emp:
         adjustments = BankHourAdjustment.query.filter_by(employee_id=emp.id).all()
+        duties = WeekendDuty.query.filter_by(employee_id=emp.id).all()
         requests_rows = Request.query.filter(
             Request.employee_id == emp.id, Request.status == "approved",
             Request.request_type.in_(["overtime","bank_use"])
         ).all()
         for a in adjustments:
             movements.append({"date": a.created_at, "label": a.reason, "minutes": int(a.minutes or 0), "source": "Ajuste RH"})
+        for duty in duties:
+            duty_dt = datetime.combine(duty.duty_date, datetime.min.time())
+            movements.append({
+                "date": duty_dt,
+                "label": f"Plantão executado - {duty.duty_date.strftime('%d/%m/%Y')}" + (f" - {duty.note}" if duty.note else ""),
+                "minutes": int(duty.minutes or 0),
+                "source": "Plantão executado",
+            })
         for q in requests_rows:
             sign = 1 if q.request_type == "overtime" else -1
             movements.append({"date": datetime.combine(q.request_date, q.start_time or datetime.min.time()),
@@ -1885,6 +2061,15 @@ def employee_time_report_pdf(employee_id):
                 func.date(BankHourAdjustment.created_at) <= last_day)
         .all())
 
+    month_duties = (WeekendDuty.query
+        .filter(
+            WeekendDuty.employee_id == emp.id,
+            WeekendDuty.duty_date >= first_day,
+            WeekendDuty.duty_date <= last_day,
+        )
+        .order_by(WeekendDuty.duty_date.asc())
+        .all())
+
     # Extrato mensal completo do banco de horas.
     bank_movements = []
     for item in approved_requests:
@@ -1902,6 +2087,13 @@ def employee_time_report_pdf(employee_id):
             "description": item.reason or "Ajuste administrativo",
             "source": "Ajuste RH",
             "minutes": int(item.minutes or 0),
+        })
+    for duty in month_duties:
+        bank_movements.append({
+            "date": datetime.combine(duty.duty_date, datetime.min.time()),
+            "description": "Plantão executado" + (f" - {duty.note}" if duty.note else ""),
+            "source": "Plantão executado",
+            "minutes": int(duty.minutes or 0),
         })
     bank_movements.sort(key=lambda x: x["date"])
 
@@ -1933,6 +2125,26 @@ def employee_time_report_pdf(employee_id):
          Paragraph("Setor/Projeto", small_bold), Paragraph(_pdf_text(f"{emp.department} / {emp.project}"), small_style)],
         [Paragraph("Admissão", small_bold), Paragraph(emp.admission_date.strftime("%d/%m/%Y"), small_style),
          Paragraph("Carga semanal", small_bold), Paragraph(f"{emp.weekly_hours:g}h", small_style)],
+        [Paragraph("Jornada padrão", small_bold),
+         Paragraph(
+             _pdf_text(
+                 f"{emp.standard_start.strftime('%H:%M') if emp.standard_start else '-'} às "
+                 f"{emp.standard_end.strftime('%H:%M') if emp.standard_end else '-'}"
+             ),
+             small_style,
+         ),
+         Paragraph("Intervalo previsto", small_bold),
+         Paragraph(
+             _pdf_text(
+                 (
+                     f"{emp.work_schedule.interval_start.strftime('%H:%M')} às "
+                     f"{emp.work_schedule.interval_end.strftime('%H:%M')}"
+                 )
+                 if emp.work_schedule and emp.work_schedule.interval_start and emp.work_schedule.interval_end
+                 else "Padrão do sistema"
+             ),
+             small_style,
+         )],
     ]
     info_table = Table(info_data, colWidths=[27*mm, 93*mm, 30*mm, 100*mm])
     info_table.setStyle(TableStyle([
@@ -2021,7 +2233,8 @@ def employee_time_report_pdf(employee_id):
     total_bank_use = sum(bank_use_by_day.values())
     positive_adjustments = sum(a.minutes for a in month_adjustments if a.minutes > 0)
     negative_adjustments = abs(sum(a.minutes for a in month_adjustments if a.minutes < 0))
-    total_credits = total_overtime + positive_adjustments
+    total_duties = sum(int(d.minutes or 0) for d in month_duties)
+    total_credits = total_overtime + positive_adjustments + total_duties
     total_debits = total_bank_use + negative_adjustments
     month_balance = total_credits - total_debits
 
@@ -2031,8 +2244,10 @@ def employee_time_report_pdf(employee_id):
         [Paragraph("Horas trabalhadas registradas", small_bold), _format_minutes(total_worked_minutes),
          Paragraph("Horas abonadas por atestado", small_bold), _format_minutes(total_excused_minutes)],
         [Paragraph("Horas extras aprovadas", small_bold), _format_minutes(total_overtime),
-         Paragraph("Horas descontadas / banco utilizado", small_bold), _format_minutes(total_debits)],
+         Paragraph("Plantões executados", small_bold), _format_minutes(total_duties)],
         [Paragraph("Créditos manuais de banco", small_bold), _format_minutes(positive_adjustments),
+         Paragraph("Horas descontadas / banco utilizado", small_bold), _format_minutes(total_debits)],
+        [Paragraph("Total de créditos no mês", small_bold), _format_minutes(total_credits),
          Paragraph("Saldo do banco no mês", small_bold), _format_minutes(month_balance)],
     ]
     summary_table = Table(summary_data, colWidths=[60*mm, 35*mm, 70*mm, 35*mm])

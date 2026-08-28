@@ -2,7 +2,7 @@ from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from .extensions import db
-from .models import Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, VacationSchedule, BankHourAdjustment, Payslip, ROLE_ADMIN, ROLE_MANAGER
+from .models import Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, VacationSchedule, BankHourAdjustment, WeekendDuty, Payslip, ROLE_ADMIN, ROLE_MANAGER
 from .timezone import today_local
 
 bp = Blueprint("main", __name__)
@@ -82,9 +82,15 @@ def dashboard():
                 func.date(BankHourAdjustment.created_at) >= month_start,
                 func.date(BankHourAdjustment.created_at) <= today
             ).all()
+            month_duties = WeekendDuty.query.filter(
+                WeekendDuty.employee_id == emp.id,
+                WeekendDuty.duty_date >= month_start,
+                WeekendDuty.duty_date <= today
+            ).all()
 
             credits = sum(int(q.minutes or 0) for q in approved_month if q.request_type == "overtime")
             credits += sum(int(a.minutes or 0) for a in month_adjustments if int(a.minutes or 0) > 0)
+            credits += sum(int(d.minutes or 0) for d in month_duties)
             debits = sum(int(q.minutes or 0) for q in approved_month if q.request_type == "bank_use" and q.request_date <= today)
             debits += abs(sum(int(a.minutes or 0) for a in month_adjustments if int(a.minutes or 0) < 0))
             data["bank_credits_month"] = credits
