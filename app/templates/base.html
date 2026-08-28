@@ -24,9 +24,15 @@
     {% if current_user.employee %}
       <a class="top-profile-avatar" href="{{url_for('rh.employee_detail', employee_id=current_user.employee.id)}}" title="{{ current_user.employee.full_name }}">
         {% if current_user.employee.profile_photo %}
-          <img src="{{url_for('rh.employee_photo', employee_id=current_user.employee.id)}}" alt="Foto de {{ current_user.employee.full_name }}">
+          <img
+            class="top-profile-avatar-image"
+            src="{{url_for('rh.employee_photo', employee_id=current_user.employee.id, v=current_user.employee.profile_photo)}}"
+            alt="Foto de {{ current_user.employee.full_name }}"
+            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+          >
+          <span class="top-profile-avatar-fallback" style="display:none;">{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
         {% else %}
-          <span>{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
+          <span class="top-profile-avatar-fallback">{{ (current_user.employee.full_name[:1] or '?')|upper }}</span>
         {% endif %}
       </a>
       <div class="topbar-user">

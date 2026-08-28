@@ -246,3 +246,7 @@ O formulário “Conferi e quero assinar” permanece visível no painel enquant
 
 ## V8.9 — Refinamento visual e responsividade
 Revisão global da interface do Portal RH. Evita rolagem horizontal da página, restringe eventual rolagem apenas ao bloco interno de tabelas, melhora dashboard, formulários, fechamento mensal, auditoria, Central de Segurança, cartões, botões, campos, espaçamentos e visual em telas menores.
+
+
+## V8.9.1 — Correção da foto no avatar
+Corrige a exibição da foto do colaborador no círculo do cabeçalho. A URL passa a receber um identificador baseado no arquivo atual para evitar cache antigo, a rota da foto usa cabeçalhos no-cache e o CSS garante preenchimento integral do círculo. Se o arquivo não existir mais no disco persistente, o avatar mostra automaticamente a inicial do colaborador em vez de uma imagem quebrada.

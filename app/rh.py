@@ -886,11 +886,23 @@ def employee_photo(employee_id):
         abort(403)
     if not emp.profile_photo:
         abort(404)
-    return send_from_directory(
+
+    photo_path = os.path.join(current_app.config["UPLOAD_FOLDER"], emp.profile_photo)
+    if not os.path.isfile(photo_path):
+        # O banco pode manter o nome de uma foto antiga que não existe mais no disco.
+        # Nesse caso, o front-end exibe as iniciais até que uma nova foto seja enviada.
+        abort(404)
+
+    response = send_from_directory(
         current_app.config["UPLOAD_FOLDER"],
         emp.profile_photo,
-        as_attachment=False
+        as_attachment=False,
+        conditional=False,
     )
+    response.headers["Cache-Control"] = "no-store, private, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @bp.route("/employees/<int:employee_id>")
