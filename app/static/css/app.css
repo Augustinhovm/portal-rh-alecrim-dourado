@@ -2330,3 +2330,79 @@ body.portal-login .auth-card {
 @media (max-width: 620px) {
   .closing-flow-v87 { grid-template-columns: 1fr; }
 }
+
+
+/* =========================================================
+   V8.8 - Auditoria por período + exportação PDF
+   ========================================================= */
+.audit-filter-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(180px, 240px) 1fr;
+  gap: 14px;
+  align-items: end;
+}
+.audit-filter-form label {
+  font-size: .78rem;
+  font-weight: 800;
+}
+.audit-filter-form input {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 5px;
+}
+.audit-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.audit-filter-actions > * {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.audit-pdf-btn {
+  font-weight: 900;
+}
+.audit-period-summary {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: var(--aad-yellow-pale);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.audit-period-summary .badge {
+  margin-left: auto;
+}
+.audit-table {
+  min-width: 1100px;
+}
+.audit-table code {
+  font-size: .72rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .audit-filter-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .audit-filter-actions {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 600px) {
+  .audit-filter-form {
+    grid-template-columns: 1fr;
+  }
+  .audit-filter-actions {
+    grid-column: auto;
+    display: grid;
+  }
+  .audit-period-summary .badge {
+    margin-left: 0;
+  }
+}

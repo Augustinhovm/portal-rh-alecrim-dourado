@@ -2954,5 +2954,177 @@ def security_center():
 @login_required
 @roles_required(ROLE_ADMIN)
 def audit():
-    rows=AuditLog.query.order_by(AuditLog.created_at.desc()).limit(500).all()
-    return render_template("audit.html", rows=rows)
+    start_raw = (request.args.get("start_date") or "").strip()
+    end_raw = (request.args.get("end_date") or "").strip()
+
+    start_date = parse_date(start_raw) if start_raw else None
+    end_date = parse_date(end_raw) if end_raw else None
+
+    if start_date and end_date and end_date < start_date:
+        flash("A data final não pode ser anterior à data inicial.", "danger")
+        return redirect(url_for("rh.audit"))
+
+    query = AuditLog.query
+
+    if start_date:
+        query = query.filter(func.date(AuditLog.created_at) >= start_date)
+    if end_date:
+        query = query.filter(func.date(AuditLog.created_at) <= end_date)
+
+    rows = query.order_by(AuditLog.created_at.desc()).limit(2000).all()
+
+    return render_template(
+        "audit.html",
+        rows=rows,
+        start_date=start_raw,
+        end_date=end_raw,
+    )
+
+
+@bp.route("/audit.pdf")
+@login_required
+@roles_required(ROLE_ADMIN)
+def audit_pdf():
+    start_raw = (request.args.get("start_date") or "").strip()
+    end_raw = (request.args.get("end_date") or "").strip()
+
+    start_date = parse_date(start_raw) if start_raw else None
+    end_date = parse_date(end_raw) if end_raw else None
+
+    if start_date and end_date and end_date < start_date:
+        flash("A data final não pode ser anterior à data inicial.", "danger")
+        return redirect(url_for("rh.audit"))
+
+    query = AuditLog.query
+
+    if start_date:
+        query = query.filter(func.date(AuditLog.created_at) >= start_date)
+    if end_date:
+        query = query.filter(func.date(AuditLog.created_at) <= end_date)
+
+    rows = query.order_by(AuditLog.created_at.asc()).all()
+
+    output = BytesIO()
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        leftMargin=12 * mm,
+        rightMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+        title="Relatório de Auditoria - Portal RH",
+        author="Portal RH - Associação Alecrim Dourado",
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "AuditTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=19,
+        alignment=TA_CENTER,
+        spaceAfter=4 * mm,
+    )
+    small = ParagraphStyle(
+        "AuditSmall",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7.2,
+        leading=9,
+    )
+    small_bold = ParagraphStyle(
+        "AuditSmallBold",
+        parent=small,
+        fontName="Helvetica-Bold",
+    )
+
+    period_start = start_date.strftime("%d/%m/%Y") if start_date else "Início dos registros"
+    period_end = end_date.strftime("%d/%m/%Y") if end_date else "Data atual"
+
+    story = [
+        Paragraph("RELATÓRIO DE AUDITORIA DO PORTAL RH", title_style),
+        Paragraph(
+            f"<b>Período:</b> {period_start} até {period_end}",
+            small,
+        ),
+        Paragraph(
+            f"<b>Gerado em:</b> {now_local().strftime('%d/%m/%Y às %H:%M:%S')} "
+            f"&nbsp;&nbsp;&nbsp; <b>Responsável pela exportação:</b> {_pdf_text(current_user.email)}",
+            small,
+        ),
+        Spacer(1, 4 * mm),
+    ]
+
+    headers = ["Data/Hora", "Usuário", "Ação", "Recurso", "IP", "Detalhes"]
+    data = [[Paragraph(f"<b>{h}</b>", small_bold) for h in headers]]
+
+    for log in rows:
+        user_label = log.user.email if log.user else "Sistema / não autenticado"
+        resource = f"{log.entity}"
+        if log.entity_id:
+            resource += f" #{log.entity_id}"
+
+        data.append([
+            Paragraph(log.created_at.strftime("%d/%m/%Y %H:%M:%S"), small),
+            Paragraph(_pdf_text(user_label), small),
+            Paragraph(_pdf_text(log.action), small),
+            Paragraph(_pdf_text(resource), small),
+            Paragraph(_pdf_text(log.ip_address or "—"), small),
+            Paragraph(_pdf_text(log.details or "—"), small),
+        ])
+
+    if len(data) == 1:
+        data.append([
+            Paragraph("—", small),
+            Paragraph("—", small),
+            Paragraph("Nenhum registro encontrado no período.", small),
+            Paragraph("—", small),
+            Paragraph("—", small),
+            Paragraph("—", small),
+        ])
+
+    table = Table(
+        data,
+        repeatRows=1,
+        colWidths=[34*mm, 48*mm, 48*mm, 35*mm, 34*mm, 74*mm],
+    )
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E9ECEF")),
+        ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#C7CDD2")),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("LEFTPADDING", (0,0), (-1,-1), 4),
+        ("RIGHTPADDING", (0,0), (-1,-1), 4),
+        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+    ]))
+
+    story.append(table)
+    story.append(Spacer(1, 4 * mm))
+    story.append(Paragraph(
+        f"Total de registros no período: <b>{len(rows)}</b>. "
+        "Este relatório é uma exportação da trilha de auditoria do Portal RH.",
+        small,
+    ))
+
+    doc.build(story)
+    output.seek(0)
+
+    file_start = start_date.strftime("%Y%m%d") if start_date else "inicio"
+    file_end = end_date.strftime("%Y%m%d") if end_date else today_local().strftime("%Y%m%d")
+    filename = f"auditoria-portal-rh-{file_start}-{file_end}.pdf"
+
+    log_action(
+        "exportou auditoria em PDF",
+        "audit",
+        None,
+        f"Período {period_start} até {period_end}; {len(rows)} registros exportados.",
+    )
+    db.session.commit()
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf",
+    )

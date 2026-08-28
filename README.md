@@ -234,3 +234,7 @@ Cria uma área exclusiva do administrador para monitorar autenticações, logins
 
 ## V8.7 — Duas vias do fechamento e reabertura de competência
 Após a assinatura eletrônica do colaborador, o RH passa a validar o fechamento final. Somente após essa validação a via definitiva fica arquivada permanentemente na área "Meus fechamentos" do colaborador, enquanto o RH mantém acesso à mesma versão final. O PDF assinado passa a registrar também a validação final do RH. O RH pode reabrir uma competência fechada mediante justificativa obrigatória; ao reabrir, ciência e validação anteriores são invalidadas e será exigido novo ciclo de fechamento e assinatura.
+
+
+## V8.8 — Auditoria por período e exportação PDF
+A área de Auditoria passa a permitir filtro por data inicial e data final. O mesmo período pode ser exportado em PDF para conferência e arquivamento administrativo. O relatório contém data/hora, usuário, ação, recurso, IP, detalhes, período selecionado, responsável pela exportação, data/hora de geração e quantidade total de registros.

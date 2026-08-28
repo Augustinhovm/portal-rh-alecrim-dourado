@@ -1,1 +1,76 @@
-{% extends 'base.html' %}{% block content %}<h1>Auditoria</h1><div class="panel table-wrap"><table><tr><th>Data</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th></tr>{% for r in rows %}<tr><td>{{r.created_at.strftime('%d/%m/%Y %H:%M:%S')}}</td><td>{{r.user.email if r.user else '-'}}</td><td>{{r.action}}</td><td>{{r.entity}} #{{r.entity_id or ''}}</td><td>{{r.details or '-'}}</td><td>{{r.ip_address or '-'}}</td></tr>{% endfor %}</table></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Auditoria · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <h1>Auditoria</h1>
+    <p class="muted">Consulte a trilha de ações do Portal RH e exporte um período para conferência em PDF.</p>
+  </div>
+</div>
+
+<div class="panel audit-filter-panel">
+  <div class="section-heading">
+    <div>
+      <h2>Período da auditoria</h2>
+      <p class="muted">Informe as datas para filtrar os registros exibidos e gerar o relatório em PDF.</p>
+    </div>
+  </div>
+
+  <form method="get" action="{{url_for('rh.audit')}}" class="audit-filter-form">
+    <label>Data inicial
+      <input type="date" name="start_date" value="{{start_date}}">
+    </label>
+    <label>Data final
+      <input type="date" name="end_date" value="{{end_date}}">
+    </label>
+    <div class="audit-filter-actions">
+      <button type="submit">Filtrar registros</button>
+      <a class="btn secondary" href="{{url_for('rh.audit')}}">Limpar filtro</a>
+      <a class="btn audit-pdf-btn"
+         href="{{url_for('rh.audit_pdf',start_date=start_date,end_date=end_date)}}">
+        Baixar PDF da Auditoria
+      </a>
+    </div>
+  </form>
+
+  <div class="audit-period-summary">
+    {% if start_date or end_date %}
+      <strong>Período selecionado:</strong>
+      <span>{{start_date or 'início dos registros'}} até {{end_date or 'data atual'}}</span>
+    {% else %}
+      <strong>Visualização atual:</strong>
+      <span>Registros mais recentes, sem filtro de período.</span>
+    {% endif %}
+    <span class="badge">{{rows|length}} registro(s)</span>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="table-wrap">
+    <table class="audit-table">
+      <tr>
+        <th>Data/Hora</th>
+        <th>Usuário</th>
+        <th>Ação</th>
+        <th>Recurso</th>
+        <th>IP</th>
+        <th>Detalhes</th>
+      </tr>
+      {% for log in rows %}
+      <tr>
+        <td>{{log.created_at.strftime('%d/%m/%Y %H:%M:%S')}}</td>
+        <td>{{log.user.email if log.user else 'Sistema / não autenticado'}}</td>
+        <td><strong>{{log.action}}</strong></td>
+        <td>{{log.entity}}{% if log.entity_id %} #{{log.entity_id}}{% endif %}</td>
+        <td><code>{{log.ip_address or '—'}}</code></td>
+        <td>{{log.details or '—'}}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="6">Nenhum registro de auditoria encontrado para o período selecionado.</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}
