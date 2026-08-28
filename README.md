@@ -238,3 +238,7 @@ Após a assinatura eletrônica do colaborador, o RH passa a validar o fechamento
 
 ## V8.8 — Auditoria por período e exportação PDF
 A área de Auditoria passa a permitir filtro por data inicial e data final. O mesmo período pode ser exportado em PDF para conferência e arquivamento administrativo. O relatório contém data/hora, usuário, ação, recurso, IP, detalhes, período selecionado, responsável pela exportação, data/hora de geração e quantidade total de registros.
+
+
+## V8.8.1 — Correção do botão de assinatura do colaborador
+O formulário “Conferi e quero assinar” permanece visível no painel enquanto houver uma competência fechada ainda não assinada. O PDF pode continuar abrindo em nova aba; ao retornar, o colaborador consegue assinar sem precisar atualizar a página. A validação no servidor permanece obrigatória e impede assinatura quando o relatório ainda não foi realmente visualizado.

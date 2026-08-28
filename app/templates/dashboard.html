@@ -103,12 +103,18 @@
               Visualizar PDF
             </a>
 
-            {% if c.employee_viewed_at %}
             <details class="signature-confirm-details">
               <summary>Conferi e quero assinar</summary>
               <form method="post" action="{{url_for('rh.time_report_acknowledge')}}" class="signature-confirm-form">
                 <input type="hidden" name="year" value="{{c.year}}">
                 <input type="hidden" name="month" value="{{c.month}}">
+
+                {% if not c.employee_viewed_at %}
+                <div class="signature-view-warning">
+                  <strong>Antes de assinar:</strong>
+                  abra o PDF pelo botão “Visualizar PDF”, confira o documento e depois retorne a esta tela.
+                </div>
+                {% endif %}
 
                 <label class="signature-checkbox">
                   <input type="checkbox" name="confirm_ack" value="1" required>
@@ -124,7 +130,6 @@
                 <button type="submit">Confirmar e assinar</button>
               </form>
             </details>
-            {% endif %}
           </div>
         </div>
         {% endfor %}

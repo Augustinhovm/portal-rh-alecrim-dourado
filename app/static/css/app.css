@@ -2406,3 +2406,19 @@ body.portal-login .auth-card {
     margin-left: 0;
   }
 }
+
+
+/* V8.8.1 - assinatura disponível após visualização em nova aba */
+.signature-view-warning {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #fff8df;
+  border: 1px solid #ead38a;
+  font-size: .78rem;
+  line-height: 1.45;
+}
+.signature-view-warning strong {
+  display: block;
+  margin-bottom: 2px;
+}
