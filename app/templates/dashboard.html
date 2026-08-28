@@ -1,51 +1,163 @@
 {% extends 'base.html' %}
 {% block content %}
 
-{% if current_user.role in ['admin','manager'] %}
+{% if current_user.role == 'admin' %}
+<div class="executive-dashboard">
+  <section class="executive-hero">
+    <div>
+      <span class="executive-kicker">PAINEL EXECUTIVO DO RH</span>
+      <h1>Olá, {{ current_user.employee.full_name.split(' ')[0] if current_user.employee else 'RH' }}</h1>
+      <p>{{today.strftime('%d/%m/%Y')}} · Visão consolidada da operação de pessoas.</p>
+    </div>
+    <div class="executive-hero-actions">
+      <a class="btn executive-primary" href="{{url_for('rh.pending_center')}}">Central de Pendências <strong>{{data.total_pending_rh}}</strong></a>
+      <a class="btn secondary" href="{{url_for('rh.employee_new')}}">Novo colaborador</a>
+    </div>
+  </section>
+
+  <section class="executive-kpi-grid">
+    <a class="executive-kpi-card" href="{{url_for('rh.employees')}}">
+      <span class="kpi-icon kpi-green">👥</span>
+      <div><small>Colaboradores ativos</small><strong>{{data.employees}}</strong><p>Quadro atual</p></div>
+    </a>
+    <a class="executive-kpi-card {% if data.pending %}attention{% endif %}" href="{{url_for('rh.approvals')}}">
+      <span class="kpi-icon kpi-gold">✓</span>
+      <div><small>Solicitações pendentes</small><strong>{{data.pending}}</strong><p>Aguardando decisão</p></div>
+    </a>
+    <a class="executive-kpi-card {% if data.certificates_received %}attention{% endif %}" href="{{url_for('rh.certificates_manage')}}">
+      <span class="kpi-icon kpi-blue">✚</span>
+      <div><small>Atestados recebidos</small><strong>{{data.certificates_received}}</strong><p>Aguardando conferência</p></div>
+    </a>
+    <a class="executive-kpi-card {% if data.incomplete_today %}critical{% endif %}" href="{{url_for('rh.time_records')}}">
+      <span class="kpi-icon kpi-red">◷</span>
+      <div><small>Pontos incompletos hoje</small><strong>{{data.incomplete_today}}</strong><p>Precisam de revisão</p></div>
+    </a>
+    <a class="executive-kpi-card {% if data.open_current_month %}attention{% endif %}" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">
+      <span class="kpi-icon kpi-purple">▣</span>
+      <div><small>Competências abertas</small><strong>{{data.open_current_month}}</strong><p>{{data.closed_current_month}} já fechada(s)</p></div>
+    </a>
+    <a class="executive-kpi-card {% if data.awaiting_employee_signature %}attention{% endif %}" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">
+      <span class="kpi-icon kpi-gold">✎</span>
+      <div><small>Aguardando assinatura</small><strong>{{data.awaiting_employee_signature}}</strong><p>Ciência do colaborador</p></div>
+    </a>
+    <a class="executive-kpi-card {% if data.awaiting_rh_validation %}critical{% endif %}" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">
+      <span class="kpi-icon kpi-green">✓</span>
+      <div><small>Validação final do RH</small><strong>{{data.awaiting_rh_validation}}</strong><p>Assinaturas já recebidas</p></div>
+    </a>
+    <a class="executive-kpi-card" href="{{url_for('rh.bank_statement')}}">
+      <span class="kpi-icon kpi-blue">◴</span>
+      <div><small>Banco de horas total</small><strong>{{data.bank_minutes|minutes_hhmm}}</strong><p>Saldo realizado</p></div>
+    </a>
+  </section>
+
+  <section class="executive-main-grid">
+    <div class="executive-main-column">
+      <div class="panel executive-pending-panel">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">O QUE PRECISA DA SUA ATENÇÃO</span>
+            <h2>Fila operacional do RH</h2>
+            <p class="muted">Pendências prioritárias consolidadas em uma única visão.</p>
+          </div>
+          <a class="btn secondary" href="{{url_for('rh.pending_center')}}">Ver central completa</a>
+        </div>
+
+        <div class="executive-task-grid">
+          <a href="{{url_for('rh.approvals')}}" class="executive-task">
+            <span>Solicitações para aprovar</span><strong>{{data.pending}}</strong><small>Banco, extras e ajustes</small>
+          </a>
+          <a href="{{url_for('rh.certificates_manage')}}" class="executive-task">
+            <span>Atestados para conferir</span><strong>{{data.certificates_received}}</strong><small>Documentos recebidos</small>
+          </a>
+          <a href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}" class="executive-task">
+            <span>Fechamentos em aberto</span><strong>{{data.open_current_month}}</strong><small>Competência {{today.strftime('%m/%Y')}}</small>
+          </a>
+          <a href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}" class="executive-task">
+            <span>Assinaturas para validar</span><strong>{{data.awaiting_rh_validation}}</strong><small>Já assinadas pelo colaborador</small>
+          </a>
+          <a href="{{url_for('rh.pending_center')}}#acessos" class="executive-task">
+            <span>Pendências de acesso</span><strong>{{data.employees_without_pin + data.password_change_pending}}</strong><small>PIN ou senha inicial</small>
+          </a>
+          <a href="{{url_for('rh.payslips_manage')}}" class="executive-task">
+            <span>Holerites não visualizados</span><strong>{{data.unread_payslips}}</strong><small>Acompanhamento de entrega</small>
+          </a>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-heading">
+          <div><h2>Solicitações mais recentes</h2><p class="muted">Itens que ainda aguardam aprovação.</p></div>
+          <a href="{{url_for('rh.approvals')}}">Ver todas</a>
+        </div>
+        <div class="table-wrap">
+          <table class="executive-table">
+            <tr><th>Colaborador</th><th>Tipo</th><th>Data</th><th>Duração</th><th>Status</th></tr>
+            {% for r in data.pending_requests %}
+            <tr>
+              <td><a href="{{url_for('rh.employee_detail',employee_id=r.employee.id)}}"><strong>{{r.employee.full_name}}</strong></a></td>
+              <td>{{r.request_type.replace('_',' ')|title}}</td>
+              <td>{{r.request_date.strftime('%d/%m/%Y')}}</td>
+              <td>{{r.minutes//60}}h {{r.minutes%60}}m</td>
+              <td><span class="badge pending">Aguardando</span></td>
+            </tr>
+            {% else %}<tr><td colspan="5">Nenhuma solicitação pendente.</td></tr>{% endfor %}
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <aside class="executive-side-column">
+      <section class="panel executive-health-card">
+        <div class="section-heading"><div><h2>Saúde da operação</h2><p class="muted">Resumo de pontos que merecem acompanhamento.</p></div></div>
+        <div class="health-list">
+          <a href="{{url_for('rh.time_records')}}"><span>Marcações incompletas hoje</span><strong class="{% if data.incomplete_today %}negative{% else %}positive{% endif %}">{{data.incomplete_today}}</strong></a>
+          <a href="{{url_for('rh.pending_center')}}#acessos"><span>Sem PIN de ponto</span><strong>{{data.employees_without_pin}}</strong></a>
+          <a href="{{url_for('rh.pending_center')}}#acessos"><span>Troca de senha pendente</span><strong>{{data.password_change_pending}}</strong></a>
+          <a href="{{url_for('rh.pending_center')}}"><span>Férias nos próximos 30 dias</span><strong>{{data.vacations_next_30}}</strong></a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading"><div><h2>Atestados recentes</h2></div><a href="{{url_for('rh.certificates_manage')}}">Ver todos</a></div>
+        <div class="mini-stack executive-mini-stack">
+          {% for c in data.recent_certificates[:6] %}
+          <a href="{{url_for('rh.employee_detail',employee_id=c.employee.id)}}#atestados">
+            <strong>{{c.employee.full_name}}</strong>
+            <small>{{c.start_date.strftime('%d/%m/%Y')}} · {{c.days}} dia(s) · {{c.status|title}}</small>
+          </a>
+          {% else %}<div class="professional-empty">Nenhum atestado recente.</div>{% endfor %}
+        </div>
+      </section>
+
+      <section class="panel executive-shortcuts">
+        <h2>Acessos rápidos</h2>
+        <a href="{{url_for('rh.employees')}}">Colaboradores <span>›</span></a>
+        <a href="{{url_for('rh.time_closing')}}">Fechamento mensal <span>›</span></a>
+        <a href="{{url_for('rh.bank_statement')}}">Banco de horas <span>›</span></a>
+        <a href="{{url_for('rh.audit')}}">Auditoria <span>›</span></a>
+        <a href="{{url_for('rh.security_center')}}">Central de Segurança <span>›</span></a>
+      </section>
+    </aside>
+  </section>
+</div>
+
+{% elif current_user.role == 'manager' %}
 <div class="rh-home">
   <div class="heading">
-    <div><h1>Olá, {{ current_user.employee.full_name if current_user.employee else 'Administrador' }}</h1><p>{{ today.strftime('%d/%m/%Y') }}</p></div>
+    <div><h1>Olá, {{ current_user.employee.full_name if current_user.employee else 'Responsável' }}</h1><p class="muted">{{today.strftime('%d/%m/%Y')}} · Visão da sua equipe.</p></div>
   </div>
   <div class="cards">
-    <div class="card"><span>Colaboradores</span><strong>{{data.employees}}</strong></div>
+    <div class="card"><span>Equipe visível</span><strong>{{data.employees}}</strong></div>
     <div class="card"><span>Atestados no mês</span><strong>{{data.certificates_month}}</strong></div>
     <div class="card"><span>Solicitações pendentes</span><strong>{{data.pending}}</strong></div>
-    <div class="card bank-highlight"><span>Banco de horas</span><strong>{{ data.bank_minutes|minutes_hhmm }}</strong></div>
+    <div class="card bank-highlight"><span>Banco da equipe</span><strong>{{data.bank_minutes|minutes_hhmm}}</strong></div>
   </div>
-
-  {% if current_user.role=='admin' and data.incomplete_today %}
-    <div class="alert warning"><strong>Atenção:</strong> {{data.incomplete_today}} colaborador(es) possuem marcações incompletas hoje.</div>
-  {% endif %}
-
   <div class="panel">
-    <div class="heading"><div><h2>Ações rápidas</h2><p class="muted">Acessos principais do RH.</p></div></div>
-    <div class="actions">
-      <a class="btn" href="{{url_for('rh.approvals')}}">Ver aprovações{% if data.pending %} ({{data.pending}}){% endif %}</a>
-      <a class="btn secondary" href="{{url_for('rh.time_records')}}">Registros de ponto</a>
-      <a class="btn secondary" href="{{url_for('rh.employees')}}">Colaboradores</a>
-      {% if current_user.role=='admin' %}
-      <a class="btn secondary" href="{{url_for('rh.time_closing')}}">Fechamento mensal</a>
-      <a class="btn secondary" href="{{url_for('rh.bank_statement')}}">Extrato banco</a>
-      <a class="btn secondary" href="{{url_for('rh.certificates_manage')}}">Atestados recebidos{% if data.certificates_received %} ({{data.certificates_received}}){% endif %}</a>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="heading"><div><h2>Solicitações aguardando aprovação</h2><p class="muted">Banco de horas, horas extras e ajustes.</p></div><a href="{{url_for('rh.approvals')}}">Ver todas</a></div>
+    <div class="section-heading"><div><h2>Solicitações aguardando aprovação</h2></div><a href="{{url_for('rh.approvals')}}">Ver todas</a></div>
     <div class="table-wrap"><table><tr><th>Colaborador</th><th>Tipo</th><th>Data</th><th>Duração</th></tr>
       {% for r in data.pending_requests %}<tr><td>{{r.employee.full_name}}</td><td>{{r.request_type.replace('_',' ')|title}}</td><td>{{r.request_date.strftime('%d/%m/%Y')}}</td><td>{{r.minutes//60}}h {{r.minutes%60}}m</td></tr>{% else %}<tr><td colspan="4">Nenhuma solicitação pendente.</td></tr>{% endfor %}
     </table></div>
   </div>
-
-  {% if current_user.role=='admin' %}
-  <div class="panel">
-    <div class="heading"><div><h2>Atestados recebidos recentemente</h2></div><a href="{{url_for('rh.certificates_manage')}}">Ver todos</a></div>
-    <div class="table-wrap"><table><tr><th>Colaborador</th><th>Afastamento</th><th>Dias</th><th>Status</th></tr>
-      {% for c in data.recent_certificates %}<tr><td>{{c.employee.full_name}}</td><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td><span class="badge {{c.status}}">{{c.status|title}}</span></td></tr>{% else %}<tr><td colspan="4">Nenhum atestado recebido.</td></tr>{% endfor %}
-    </table></div>
-  </div>
-  {% endif %}
 </div>
 {% else %}
 

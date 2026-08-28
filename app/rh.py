@@ -725,6 +725,144 @@ def visible_employees():
         return Employee.query.filter(Employee.id.in_(ids)).order_by(Employee.full_name).all()
     return [current_user.employee] if current_user.employee else []
 
+
+@bp.route("/pending-center")
+@login_required
+@roles_required(ROLE_ADMIN)
+def pending_center():
+    """Caixa de entrada operacional do RH, consolidando pendências do Portal."""
+    today = today_local()
+    active_employees = Employee.query.filter_by(is_active=True).order_by(Employee.full_name).all()
+    employee_ids = [e.id for e in active_employees]
+
+    pending_requests = (
+        Request.query
+        .filter_by(status="pending")
+        .order_by(Request.requested_at.asc())
+        .all()
+    )
+
+    pending_certificates = (
+        MedicalCertificate.query
+        .filter_by(status="recebido")
+        .order_by(MedicalCertificate.uploaded_at.asc())
+        .all()
+    )
+
+    incomplete_punches = []
+    for emp in active_employees:
+        today_rows = (
+            TimeClock.query
+            .filter(
+                TimeClock.employee_id == emp.id,
+                func.date(TimeClock.punched_at) == today,
+            )
+            .order_by(TimeClock.punched_at.asc())
+            .all()
+        )
+        if today_rows and len(today_rows) != 4:
+            incomplete_punches.append({
+                "employee": emp,
+                "count": len(today_rows),
+                "last": today_rows[-1] if today_rows else None,
+            })
+
+    open_closures = []
+    awaiting_signatures = []
+    awaiting_rh_validation = []
+
+    for emp in active_employees:
+        closure = TimePeriodClosure.query.filter_by(
+            employee_id=emp.id,
+            year=today.year,
+            month=today.month,
+        ).first()
+
+        if not closure or closure.status != "closed":
+            open_closures.append({"employee": emp, "closure": closure})
+            continue
+
+        ack = TimeReportAcknowledgement.query.filter_by(
+            employee_id=emp.id,
+            year=today.year,
+            month=today.month,
+        ).first()
+
+        if not ack:
+            awaiting_signatures.append({"employee": emp, "closure": closure})
+            continue
+
+        finalization = TimeReportFinalization.query.filter_by(
+            employee_id=emp.id,
+            year=today.year,
+            month=today.month,
+        ).first()
+        if not finalization:
+            awaiting_rh_validation.append({
+                "employee": emp,
+                "closure": closure,
+                "ack": ack,
+            })
+
+    access_pending = []
+    for emp in active_employees:
+        reasons = []
+        if not emp.point_pin_hash:
+            reasons.append("PIN de ponto não configurado")
+        if emp.user and emp.user.must_change_password:
+            reasons.append("troca da senha provisória pendente")
+        if reasons:
+            access_pending.append({"employee": emp, "reasons": reasons})
+
+    unread_payslips = (
+        Payslip.query
+        .filter(
+            Payslip.employee_id.in_(employee_ids),
+            Payslip.employee_viewed_at.is_(None),
+        )
+        .order_by(Payslip.year.desc(), Payslip.month.desc(), Payslip.uploaded_at.asc())
+        .all()
+    ) if employee_ids else []
+
+    next_30 = today + timedelta(days=30)
+    upcoming_vacations = (
+        VacationSchedule.query
+        .filter(
+            VacationSchedule.employee_id.in_(employee_ids),
+            VacationSchedule.status == "planned",
+            VacationSchedule.planned_start >= today,
+            VacationSchedule.planned_start <= next_30,
+        )
+        .order_by(VacationSchedule.planned_start.asc())
+        .all()
+    ) if employee_ids else []
+
+    total_actionable = (
+        len(pending_requests)
+        + len(pending_certificates)
+        + len(incomplete_punches)
+        + len(open_closures)
+        + len(awaiting_signatures)
+        + len(awaiting_rh_validation)
+        + len(access_pending)
+    )
+
+    return render_template(
+        "pending_center.html",
+        today=today,
+        pending_requests=pending_requests,
+        pending_certificates=pending_certificates,
+        incomplete_punches=incomplete_punches,
+        open_closures=open_closures,
+        awaiting_signatures=awaiting_signatures,
+        awaiting_rh_validation=awaiting_rh_validation,
+        access_pending=access_pending,
+        unread_payslips=unread_payslips,
+        upcoming_vacations=upcoming_vacations,
+        total_actionable=total_actionable,
+    )
+
+
 @bp.route("/employees")
 @login_required
 def employees():

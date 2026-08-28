@@ -3,11 +3,12 @@
 <div class="employee-profile-header">
   <div class="employee-profile-main">
     {% if emp.profile_photo %}
-      <img class="employee-photo" src="{{ url_for('rh.employee_photo', employee_id=emp.id) }}" alt="Foto de {{ emp.full_name }}">
+      <img class="employee-photo" src="{{ url_for('rh.employee_photo', employee_id=emp.id, v=emp.profile_photo) }}" alt="Foto de {{ emp.full_name }}">
     {% else %}
       <div class="employee-photo-placeholder employee-photo">{{ (emp.full_name[:1] or '?')|upper }}</div>
     {% endif %}
     <div>
+      <span class="employee-360-kicker">FICHA 360° DO COLABORADOR</span>
       <h1>{{ emp.full_name }}</h1>
       <p>{{ emp.job_title }} · {{ emp.project }} · {{ emp.department }}</p>
     </div>
@@ -20,7 +21,42 @@
   </div>
 </div>
 
-<div class="cards">
+<nav class="employee-360-nav" aria-label="Seções da ficha do colaborador">
+  <a href="#dados">Visão geral</a>
+  <a href="#jornada-individual">Jornada</a>
+  {% if current_user.role == 'admin' %}<a href="#acesso">Acesso</a>{% endif %}
+  <a href="#controle-ponto">Ponto</a>
+  <a href="#banco-horas">Banco de horas</a>
+  <a href="#solicitacoes">Solicitações</a>
+  <a href="#ferias">Férias</a>
+  <a href="#atestados">Atestados</a>
+  <a href="#holerites">Holerites</a>
+  <a href="#documentos">Documentos</a>
+</nav>
+
+<div class="employee-360-status">
+  <div>
+    <span>Status funcional</span>
+    <strong class="{% if emp.is_active %}positive{% else %}negative{% endif %}">{% if emp.is_active %}Ativo{% else %}Inativo{% endif %}</strong>
+  </div>
+  <div>
+    <span>Acesso ao Portal</span>
+    <strong>{% if emp.user and emp.user.active %}Liberado{% else %}Bloqueado{% endif %}</strong>
+  </div>
+  <div>
+    <span>PIN de ponto</span>
+    <strong>{% if emp.point_pin_hash %}Configurado{% else %}Pendente{% endif %}</strong>
+  </div>
+  <div>
+    <span>Próximas férias</span>
+    <strong>
+      {% set planned = vacation_schedules|selectattr('status','equalto','planned')|list %}
+      {% if planned %}{{planned[0].planned_start.strftime('%d/%m/%Y')}}{% else %}Sem programação{% endif %}
+    </strong>
+  </div>
+</div>
+
+<div class="cards employee-360-overview" id="dados">
   <div class="card"><span>CPF</span><strong class="card-value-small">{{ emp.cpf }}</strong></div>
   <div class="card"><span>Admissão</span><strong class="card-value-small">{{ emp.admission_date.strftime('%d/%m/%Y') }}</strong></div>
   <div class="card"><span>Carga semanal</span><strong>{{ emp.weekly_hours }}h</strong></div>
@@ -292,7 +328,7 @@
   </table></div>
 </div>
 
-<div class="panel"><h2>Outras solicitações recentes</h2><div class="table-wrap"><table><tr><th>Data</th><th>Tipo</th><th>Minutos</th><th>Status</th></tr>{% for r in reqs %}<tr><td>{{r.request_date.strftime('%d/%m/%Y')}}</td><td>{{r.request_type.replace('_',' ')|title}}</td><td>{{r.minutes}}</td><td><span class="badge {{r.status}}">{{r.status}}</span></td></tr>{% else %}<tr><td colspan="4">Nenhuma solicitação.</td></tr>{% endfor %}</table></div></div>
+<div class="panel" id="solicitacoes"><h2>Solicitações recentes</h2><div class="table-wrap"><table><tr><th>Data</th><th>Tipo</th><th>Minutos</th><th>Status</th></tr>{% for r in reqs %}<tr><td>{{r.request_date.strftime('%d/%m/%Y')}}</td><td>{{r.request_type.replace('_',' ')|title}}</td><td>{{r.minutes}}</td><td><span class="badge {{r.status}}">{{r.status}}</span></td></tr>{% else %}<tr><td colspan="4">Nenhuma solicitação.</td></tr>{% endfor %}</table></div></div>
 
 
 {% if current_user.role == 'admin' or (current_user.employee and current_user.employee.id == emp.id) %}
@@ -330,7 +366,7 @@
 </div>
 {% endif %}
 
-<div class="panel"><h2>Atestados</h2><div class="table-wrap"><table><tr><th>Início</th><th>Dias</th><th>Horas abonadas</th><th>Status</th>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<th>Arquivo</th>{% endif %}</tr>{% for c in certs %}<tr><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td>{% if c.allowance %}<strong>{{c.allowance.minutes|minutes_hhmm}}</strong>{% else %}<span class="badge pending">Não definido</span>{% endif %}</td><td>{{c.status}}</td>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<td><a href="{{url_for('rh.file_download',kind='certificate',item_id=c.id)}}">Abrir</a></td>{% endif %}</tr>{% else %}<tr><td colspan="5">Nenhum atestado.</td></tr>{% endfor %}</table></div></div>
+<div class="panel" id="atestados"><h2>Atestados</h2><div class="table-wrap"><table><tr><th>Início</th><th>Dias</th><th>Horas abonadas</th><th>Status</th>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<th>Arquivo</th>{% endif %}</tr>{% for c in certs %}<tr><td>{{c.start_date.strftime('%d/%m/%Y')}}</td><td>{{c.days}}</td><td>{% if c.allowance %}<strong>{{c.allowance.minutes|minutes_hhmm}}</strong>{% else %}<span class="badge pending">Não definido</span>{% endif %}</td><td>{{c.status}}</td>{% if current_user.role=='admin' or (current_user.employee and current_user.employee.id==emp.id) %}<td><a href="{{url_for('rh.file_download',kind='certificate',item_id=c.id)}}">Abrir</a></td>{% endif %}</tr>{% else %}<tr><td colspan="5">Nenhum atestado.</td></tr>{% endfor %}</table></div></div>
 
 
 <div class="panel" id="ferias">
@@ -437,5 +473,5 @@
   </table></div>
 </div>
 
-<div class="panel"><h2>Documentos</h2>{% if current_user.role=='admin' %}<form method="post" enctype="multipart/form-data" action="{{url_for('rh.document_upload',employee_id=emp.id)}}" class="inline-form"><input name="title" placeholder="Título" required><input name="category" placeholder="Categoria" required><input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required><button>Anexar</button></form>{% endif %}<div class="table-wrap"><table><tr><th>Título</th><th>Categoria</th><th>Data</th><th>Arquivo</th></tr>{% for d in docs %}<tr><td>{{d.title}}</td><td>{{d.category}}</td><td>{{d.uploaded_at.strftime('%d/%m/%Y')}}</td><td><a href="{{url_for('rh.file_download',kind='document',item_id=d.id)}}">Abrir</a></td></tr>{% else %}<tr><td colspan="4">Nenhum documento.</td></tr>{% endfor %}</table></div></div>
+<div class="panel" id="documentos"><h2>Documentos</h2>{% if current_user.role=='admin' %}<form method="post" enctype="multipart/form-data" action="{{url_for('rh.document_upload',employee_id=emp.id)}}" class="inline-form"><input name="title" placeholder="Título" required><input name="category" placeholder="Categoria" required><input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required><button>Anexar</button></form>{% endif %}<div class="table-wrap"><table><tr><th>Título</th><th>Categoria</th><th>Data</th><th>Arquivo</th></tr>{% for d in docs %}<tr><td>{{d.title}}</td><td>{{d.category}}</td><td>{{d.uploaded_at.strftime('%d/%m/%Y')}}</td><td><a href="{{url_for('rh.file_download',kind='document',item_id=d.id)}}">Abrir</a></td></tr>{% else %}<tr><td colspan="4">Nenhum documento.</td></tr>{% endfor %}</table></div></div>
 {% endblock %}

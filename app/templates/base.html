@@ -134,6 +134,7 @@
     {% if current_user.role=='admin' %}
     <section class="menu-group">
       <h3>Gestão RH</h3>
+      <a href="{{url_for('rh.pending_center')}}">Central de Pendências</a>
       <a href="{{url_for('rh.time_closing')}}">Fechamento de ponto</a>
       <a href="{{url_for('rh.bank_statement')}}">Extrato de banco de horas</a>
       <a href="{{url_for('rh.certificates_manage')}}">Gestão de atestados</a>

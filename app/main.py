@@ -1,8 +1,9 @@
 from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import func
+from datetime import timedelta
 from .extensions import db
-from .models import Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, VacationSchedule, BankHourAdjustment, WeekendDuty, Payslip, ROLE_ADMIN, ROLE_MANAGER
+from .models import User, Employee, MedicalCertificate, Request, TimeClock, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, VacationSchedule, BankHourAdjustment, WeekendDuty, Payslip, ROLE_ADMIN, ROLE_MANAGER
 from .timezone import today_local
 
 bp = Blueprint("main", __name__)
@@ -28,10 +29,84 @@ def dashboard():
         data["pending_requests"] = Request.query.filter_by(status="pending").order_by(Request.requested_at.desc()).limit(10).all()
         data["recent_certificates"] = MedicalCertificate.query.order_by(MedicalCertificate.uploaded_at.desc()).limit(10).all()
         data["certificates_received"] = MedicalCertificate.query.filter_by(status="recebido").count()
+
         data["incomplete_today"] = 0
         for eid in employee_ids:
-            count = TimeClock.query.filter(TimeClock.employee_id==eid, func.date(TimeClock.punched_at) == today).count()
-            if count not in (0,4): data["incomplete_today"] += 1
+            count = TimeClock.query.filter(
+                TimeClock.employee_id == eid,
+                func.date(TimeClock.punched_at) == today
+            ).count()
+            if count not in (0, 4):
+                data["incomplete_today"] += 1
+
+        # Indicadores executivos do RH para a competência atual.
+        current_closures = TimePeriodClosure.query.filter(
+            TimePeriodClosure.employee_id.in_(employee_ids),
+            TimePeriodClosure.year == today.year,
+            TimePeriodClosure.month == today.month,
+            TimePeriodClosure.status == "closed",
+        ).all() if employee_ids else []
+
+        closure_keys = {(c.employee_id, c.year, c.month) for c in current_closures}
+        data["closed_current_month"] = len(current_closures)
+        data["open_current_month"] = max(len(employee_ids) - len(current_closures), 0)
+
+        data["awaiting_employee_signature"] = 0
+        data["awaiting_rh_validation"] = 0
+        for closure in current_closures:
+            ack = TimeReportAcknowledgement.query.filter_by(
+                employee_id=closure.employee_id,
+                year=closure.year,
+                month=closure.month,
+            ).first()
+            if not ack:
+                data["awaiting_employee_signature"] += 1
+            else:
+                final = TimeReportFinalization.query.filter_by(
+                    employee_id=closure.employee_id,
+                    year=closure.year,
+                    month=closure.month,
+                ).first()
+                if not final:
+                    data["awaiting_rh_validation"] += 1
+
+        data["unread_payslips"] = Payslip.query.filter(
+            Payslip.employee_id.in_(employee_ids),
+            Payslip.employee_viewed_at.is_(None),
+        ).count() if employee_ids else 0
+
+        data["employees_without_pin"] = Employee.query.filter(
+            Employee.is_active.is_(True),
+            Employee.point_pin_hash.is_(None),
+        ).count()
+
+        data["password_change_pending"] = (
+            Employee.query.join(User)
+            .filter(
+                Employee.is_active.is_(True),
+                User.must_change_password.is_(True),
+            )
+            .count()
+        )
+
+        next_30 = today + timedelta(days=30)
+        data["vacations_next_30"] = VacationSchedule.query.filter(
+            VacationSchedule.employee_id.in_(employee_ids),
+            VacationSchedule.status == "planned",
+            VacationSchedule.planned_start >= today,
+            VacationSchedule.planned_start <= next_30,
+        ).count() if employee_ids else 0
+
+        data["total_pending_rh"] = (
+            data["pending"]
+            + data["certificates_received"]
+            + data["incomplete_today"]
+            + data["open_current_month"]
+            + data["awaiting_employee_signature"]
+            + data["awaiting_rh_validation"]
+            + data["employees_without_pin"]
+            + data["password_change_pending"]
+        )
     elif current_user.role == ROLE_MANAGER and current_user.employee:
         team_ids = [e.id for e in current_user.employee.team]
         visible_ids = team_ids + [current_user.employee.id]

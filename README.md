@@ -250,3 +250,7 @@ Revisão global da interface do Portal RH. Evita rolagem horizontal da página, 
 
 ## V8.9.1 — Correção da foto no avatar
 Corrige a exibição da foto do colaborador no círculo do cabeçalho. A URL passa a receber um identificador baseado no arquivo atual para evitar cache antigo, a rota da foto usa cabeçalhos no-cache e o CSS garante preenchimento integral do círculo. Se o arquivo não existir mais no disco persistente, o avatar mostra automaticamente a inicial do colaborador em vez de uma imagem quebrada.
+
+
+## V9.0 — Dashboard Executivo do RH, Central de Pendências e Ficha 360°
+Esta versão reorganiza o Portal RH como uma plataforma integrada de gestão. O administrador passa a ter um Dashboard Executivo com indicadores operacionais e atalhos acionáveis, uma Central de Pendências que consolida solicitações, atestados, marcações incompletas, fechamentos, assinaturas, validações e problemas de acesso, e uma Ficha 360° do Colaborador com navegação rápida entre jornada, acesso, ponto, banco de horas, solicitações, férias, atestados, holerites e documentos.

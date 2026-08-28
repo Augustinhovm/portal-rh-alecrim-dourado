@@ -1,0 +1,170 @@
+{% extends 'base.html' %}
+{% block title %}Central de Pendências · Portal RH{% endblock %}
+{% block content %}
+<div class="heading executive-heading">
+  <div>
+    <span class="executive-kicker">GESTÃO OPERACIONAL</span>
+    <h1>Central de Pendências</h1>
+    <p class="muted">Uma única fila para o RH acompanhar o que exige ação, conferência ou acompanhamento.</p>
+  </div>
+  <div class="executive-total-badge">
+    <span>Pendências acionáveis</span>
+    <strong>{{total_actionable}}</strong>
+  </div>
+</div>
+
+<div class="pending-summary-grid">
+  <a class="pending-summary-card" href="#solicitacoes"><span>Solicitações</span><strong>{{pending_requests|length}}</strong></a>
+  <a class="pending-summary-card" href="#atestados"><span>Atestados</span><strong>{{pending_certificates|length}}</strong></a>
+  <a class="pending-summary-card" href="#ponto"><span>Ponto de hoje</span><strong>{{incomplete_punches|length}}</strong></a>
+  <a class="pending-summary-card" href="#fechamentos"><span>Fechamentos</span><strong>{{open_closures|length}}</strong></a>
+  <a class="pending-summary-card" href="#assinaturas"><span>Assinaturas</span><strong>{{awaiting_signatures|length}}</strong></a>
+  <a class="pending-summary-card" href="#validacoes"><span>Validação RH</span><strong>{{awaiting_rh_validation|length}}</strong></a>
+  <a class="pending-summary-card" href="#acessos"><span>Acessos</span><strong>{{access_pending|length}}</strong></a>
+</div>
+
+<section class="pending-section panel" id="solicitacoes">
+  <div class="section-heading">
+    <div><h2>Solicitações aguardando aprovação</h2><p class="muted">Banco de horas, horas extras e ajustes enviados pelos colaboradores.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.approvals')}}">Abrir aprovações</a>
+  </div>
+  <div class="professional-list">
+    {% for item in pending_requests %}
+    <a class="professional-list-row" href="{{url_for('rh.approvals')}}">
+      <div class="list-avatar">{{item.employee.full_name[:1]|upper}}</div>
+      <div class="list-main"><strong>{{item.employee.full_name}}</strong><small>{{item.request_type.replace('_',' ')|title}} · {{item.request_date.strftime('%d/%m/%Y')}}</small></div>
+      <div class="list-meta"><strong>{{item.minutes//60}}h {{item.minutes%60}}m</strong><span class="badge pending">Aguardando</span></div>
+    </a>
+    {% else %}
+    <div class="professional-empty">Nenhuma solicitação aguardando aprovação.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="pending-section panel" id="atestados">
+  <div class="section-heading">
+    <div><h2>Atestados aguardando conferência</h2><p class="muted">Documentos recebidos que ainda estão no status “recebido”.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.certificates_manage')}}">Gestão de atestados</a>
+  </div>
+  <div class="professional-list">
+    {% for item in pending_certificates %}
+    <a class="professional-list-row" href="{{url_for('rh.certificates_manage')}}">
+      <div class="list-avatar">{{item.employee.full_name[:1]|upper}}</div>
+      <div class="list-main"><strong>{{item.employee.full_name}}</strong><small>Afastamento em {{item.start_date.strftime('%d/%m/%Y')}} · {{item.days}} dia(s)</small></div>
+      <div class="list-meta"><span class="badge pending">Recebido</span></div>
+    </a>
+    {% else %}
+    <div class="professional-empty">Nenhum atestado aguardando conferência.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="pending-section panel" id="ponto">
+  <div class="section-heading">
+    <div><h2>Marcações incompletas hoje</h2><p class="muted">Colaboradores que iniciaram as marcações do dia, mas ainda não possuem o conjunto esperado.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.time_records')}}">Registros de ponto</a>
+  </div>
+  <div class="professional-list">
+    {% for item in incomplete_punches %}
+    <a class="professional-list-row" href="{{url_for('rh.employee_detail',employee_id=item.employee.id)}}#controle-ponto">
+      <div class="list-avatar">{{item.employee.full_name[:1]|upper}}</div>
+      <div class="list-main"><strong>{{item.employee.full_name}}</strong><small>{{item.count}} marcação(ões) hoje{% if item.last %} · última às {{item.last.punched_at.strftime('%H:%M')}}{% endif %}</small></div>
+      <div class="list-meta"><span class="badge pending">Revisar</span></div>
+    </a>
+    {% else %}
+    <div class="professional-empty">Nenhuma marcação incompleta identificada hoje.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="pending-section panel" id="fechamentos">
+  <div class="section-heading">
+    <div><h2>Competências ainda não fechadas</h2><p class="muted">Situação da competência {{today.strftime('%m/%Y')}} para colaboradores ativos.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">Fechamento mensal</a>
+  </div>
+  <div class="professional-list compact-list">
+    {% for item in open_closures %}
+    <a class="professional-list-row" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">
+      <div class="list-avatar">{{item.employee.full_name[:1]|upper}}</div>
+      <div class="list-main"><strong>{{item.employee.full_name}}</strong><small>{% if item.closure and item.closure.status=='reopened' %}Competência reaberta{% else %}Competência ainda aberta{% endif %}</small></div>
+      <div class="list-meta"><span class="badge pending">Fechar</span></div>
+    </a>
+    {% else %}
+    <div class="professional-empty">Todos os colaboradores ativos estão com a competência fechada.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="pending-section panel" id="assinaturas">
+  <div class="section-heading">
+    <div><h2>Aguardando assinatura do colaborador</h2><p class="muted">Fechamentos já liberados pelo RH que ainda não receberam o aceite eletrônico.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">Acompanhar fechamento</a>
+  </div>
+  <div class="professional-list compact-list">
+    {% for item in awaiting_signatures %}
+    <a class="professional-list-row" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">
+      <div class="list-avatar">{{item.employee.full_name[:1]|upper}}</div>
+      <div class="list-main"><strong>{{item.employee.full_name}}</strong><small>Fechado em {{item.closure.closed_at.strftime('%d/%m/%Y %H:%M')}}</small></div>
+      <div class="list-meta"><span class="badge pending">Aguardando assinatura</span></div>
+    </a>
+    {% else %}
+    <div class="professional-empty">Nenhuma assinatura de colaborador pendente nesta competência.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="pending-section panel" id="validacoes">
+  <div class="section-heading">
+    <div><h2>Assinaturas aguardando validação do RH</h2><p class="muted">O colaborador já assinou; falta o RH validar e arquivar a via definitiva.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">Validar fechamentos</a>
+  </div>
+  <div class="professional-list compact-list">
+    {% for item in awaiting_rh_validation %}
+    <a class="professional-list-row" href="{{url_for('rh.time_closing',month=today.strftime('%Y-%m'))}}">
+      <div class="list-avatar">{{item.employee.full_name[:1]|upper}}</div>
+      <div class="list-main"><strong>{{item.employee.full_name}}</strong><small>Assinado em {{item.ack.acknowledged_at.strftime('%d/%m/%Y %H:%M')}}</small></div>
+      <div class="list-meta"><span class="badge pending">Validar RH</span></div>
+    </a>
+    {% else %}
+    <div class="professional-empty">Nenhuma validação final aguardando o RH.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="pending-section panel" id="acessos">
+  <div class="section-heading">
+    <div><h2>Pendências de acesso</h2><p class="muted">PIN não configurado ou troca de senha provisória ainda pendente.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.employees')}}">Colaboradores</a>
+  </div>
+  <div class="professional-list compact-list">
+    {% for item in access_pending %}
+    <a class="professional-list-row" href="{{url_for('rh.employee_detail',employee_id=item.employee.id)}}#acesso">
+      <div class="list-avatar">{{item.employee.full_name[:1]|upper}}</div>
+      <div class="list-main"><strong>{{item.employee.full_name}}</strong><small>{{item.reasons|join(' · ')}}</small></div>
+      <div class="list-meta"><span class="badge pending">Configurar</span></div>
+    </a>
+    {% else %}
+    <div class="professional-empty">Nenhuma pendência de acesso identificada.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="pending-secondary-grid">
+  <section class="panel">
+    <div class="section-heading"><div><h2>Holerites ainda não visualizados</h2><p class="muted">Acompanhamento, sem exigir ação imediata do RH.</p></div><span class="badge">{{unread_payslips|length}}</span></div>
+    <div class="mini-stack">
+      {% for item in unread_payslips[:8] %}
+      <div><strong>{{item.employee.full_name}}</strong><small>{{'%02d'|format(item.month)}}/{{item.year}}</small></div>
+      {% else %}<div class="professional-empty">Todos os holerites enviados já foram visualizados.</div>{% endfor %}
+    </div>
+  </section>
+  <section class="panel">
+    <div class="section-heading"><div><h2>Férias nos próximos 30 dias</h2><p class="muted">Agenda preventiva do RH.</p></div><span class="badge">{{upcoming_vacations|length}}</span></div>
+    <div class="mini-stack">
+      {% for item in upcoming_vacations[:8] %}
+      <div><strong>{{item.employee.full_name}}</strong><small>{{item.planned_start.strftime('%d/%m/%Y')}} · {{item.days}} dia(s)</small></div>
+      {% else %}<div class="professional-empty">Nenhuma férias prevista para os próximos 30 dias.</div>{% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}
