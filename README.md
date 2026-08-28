@@ -226,3 +226,4 @@ A V8.5 reforça autenticação, sessão, CSRF, proteção contra brute force, PI
 
 ## V8.5.1 — Correção de autenticação no Render
 Corrige falso 403 no POST de login causado pela comparação absoluta de Origin atrás do proxy HTTPS do Render. A proteção CSRF permanece obrigatória e a validação adicional passa a comparar o host da origem com o host efetivo da requisição.
+\n\n## V8.5.2 — Correção definitiva do 403 no login\nRemove a validação redundante de Origin que gerava falso bloqueio atrás do proxy reverso do Render. A proteção CSRF obrigatória permanece ativa em todos os POSTs, juntamente com cookies seguros, CSP, HSTS, proteção contra brute force e demais controles da V8.5.\n
