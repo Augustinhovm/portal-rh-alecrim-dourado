@@ -4066,3 +4066,10 @@ code {
 .payroll-reopen-authorized .alert {
   margin: 12px 0;
 }
+
+
+/* V9.5.4 - encaminhamento Outlook de atestados */
+.certificate-mail-panel .section-heading { align-items: flex-start; }
+.certificate-email-cell { min-width: 150px; }
+.certificate-email-cell small { display: block; margin: 5px 0 8px; max-width: 190px; }
+.certificate-email-cell form { margin: 0; }

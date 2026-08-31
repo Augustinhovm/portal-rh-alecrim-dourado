@@ -17,9 +17,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, PayrollCompetence, PayrollManualEvent, PayrollEmployeeCalculation, PayrollCalculationItem, PayrollClosure, PayrollAuthorizationHistory, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, MedicalCertificateEmailDelivery, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, PayrollCompetence, PayrollManualEvent, PayrollEmployeeCalculation, PayrollCalculationItem, PayrollClosure, PayrollAuthorizationHistory, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
+from .microsoft_mail import send_certificate_email, outlook_mail_settings, MicrosoftMailError
 
 bp = Blueprint("rh", __name__, url_prefix="/rh")
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp"}
@@ -3067,6 +3068,89 @@ def clock():
     rows = TimeClock.query.filter(TimeClock.employee_id==emp.id, db.func.date(TimeClock.punched_at) == today_local()).order_by(TimeClock.punched_at).all()
     return render_template("clock.html", rows=rows)
 
+
+def _forward_checked_certificate(cert, *, force_retry=False):
+    """Encaminha um atestado conferido e registra o resultado, sem duplicar envios concluídos."""
+    settings = outlook_mail_settings()
+    sender = settings.get("sender") or "não configurado"
+    recipients = settings.get("recipients") or []
+
+    delivery = MedicalCertificateEmailDelivery.query.filter_by(
+        certificate_id=cert.id
+    ).first()
+
+    if delivery and delivery.status == "sent" and not force_retry:
+        return delivery, False
+
+    if not delivery:
+        delivery = MedicalCertificateEmailDelivery(
+            certificate_id=cert.id,
+            status="pending",
+            sender=sender,
+            recipients_json=json.dumps(recipients, ensure_ascii=False),
+            attempts=0,
+            triggered_by=current_user.id,
+        )
+        db.session.add(delivery)
+        db.session.flush()
+    else:
+        delivery.sender = sender
+        delivery.recipients_json = json.dumps(recipients, ensure_ascii=False)
+        delivery.triggered_by = current_user.id
+
+    delivery.attempts = int(delivery.attempts or 0) + 1
+    delivery.last_attempt_at = now_local()
+    delivery.status = "pending"
+    delivery.last_error = None
+    db.session.commit()
+
+    file_path = os.path.join(current_app.config["UPLOAD_FOLDER"], cert.stored_name)
+    try:
+        result = send_certificate_email(
+            employee_name=cert.employee.full_name,
+            start_date=cert.start_date,
+            days=cert.days,
+            original_name=cert.original_name,
+            file_path=file_path,
+        )
+        delivery.status = "sent"
+        delivery.sent_at = now_local()
+        delivery.last_error = None
+        delivery.sender = result["sender"]
+        delivery.recipients_json = json.dumps(result["recipients"], ensure_ascii=False)
+        log_action(
+            "encaminhou atestado por Outlook",
+            "medical_certificate",
+            cert.id,
+            f"{cert.employee.full_name}; destinatários: {', '.join(result['recipients'])}",
+        )
+        log_security_event(
+            "medical_certificate_email_sent",
+            severity="info",
+            user=current_user,
+            details=f"Atestado {cert.id} de {cert.employee.full_name} encaminhado automaticamente pelo Microsoft 365.",
+        )
+        db.session.commit()
+        return delivery, True
+    except MicrosoftMailError as exc:
+        delivery.status = "failed"
+        delivery.last_error = str(exc)[:1800]
+        log_action(
+            "falha no encaminhamento de atestado por Outlook",
+            "medical_certificate",
+            cert.id,
+            f"{cert.employee.full_name}; {delivery.last_error}",
+        )
+        log_security_event(
+            "medical_certificate_email_failed",
+            severity="warning",
+            user=current_user,
+            details=f"Falha no envio do atestado {cert.id}: {delivery.last_error}",
+        )
+        db.session.commit()
+        return delivery, False
+
+
 @bp.route("/certificates", methods=["GET", "POST"])
 @login_required
 def certificates():
@@ -3308,6 +3392,7 @@ def certificates_manage():
         end_date=end_date,
         batch_start_date=batch_start_date,
         batch_end_date=batch_end_date,
+        mail_settings=outlook_mail_settings(),
     )
 
 
@@ -3423,7 +3508,39 @@ def certificate_status(certificate_id):
         f"{old_status} -> {new_status}",
     )
     db.session.commit()
-    flash("Status do atestado atualizado.", "success")
+
+    if new_status == "conferido":
+        delivery, sent_now = _forward_checked_certificate(cert)
+        if delivery.status == "sent":
+            if sent_now:
+                flash("Atestado conferido e encaminhado automaticamente pelo Outlook.", "success")
+            else:
+                flash("Atestado conferido. O e-mail já havia sido enviado anteriormente, por isso não foi duplicado.", "success")
+        else:
+            flash(
+                "Atestado marcado como conferido, mas o envio pelo Outlook falhou. "
+                "O erro ficou registrado e você pode usar “Reenviar e-mail”.",
+                "warning",
+            )
+    else:
+        flash("Status do atestado atualizado.", "success")
+    return redirect(request.referrer or url_for("rh.certificates_manage"))
+
+
+@bp.route("/certificates/<int:certificate_id>/resend-email", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def certificate_resend_email(certificate_id):
+    cert = db.get_or_404(MedicalCertificate, certificate_id)
+    if cert.status != "conferido":
+        flash("O atestado precisa estar com status Conferido antes do envio.", "danger")
+        return redirect(request.referrer or url_for("rh.certificates_manage"))
+
+    delivery, sent_now = _forward_checked_certificate(cert, force_retry=True)
+    if delivery.status == "sent":
+        flash("Atestado reenviado pelo Outlook com sucesso.", "success")
+    else:
+        flash("O reenvio pelo Outlook falhou. Consulte o status do e-mail nesta tela.", "warning")
     return redirect(request.referrer or url_for("rh.certificates_manage"))
 
 

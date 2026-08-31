@@ -306,3 +306,35 @@ Novo visual para o relatório consolidado e para os holerites gerados pelo Porta
 - A nova autorização recebe um novo código e novos holerites são gerados.
 - A tela da competência exibe o histórico de autorizações anteriores reabertas.
 - Eventos de auditoria e segurança registram reabertura, autorização anterior, motivo e quantidade de holerites invalidados.
+
+
+## V9.5.4 — Envio automático de atestados pelo Outlook / Microsoft 365
+Quando o RH altera um atestado para **Conferido**, o Portal tenta encaminhar automaticamente o arquivo original pelo Microsoft Graph.
+
+Remetente:
+- admalecrimdourado@assalecrimdourado.onmicrosoft.com
+
+Destinatários:
+- jaqueline@saviancontabilidade.com.br
+- flavia@saviancontabilidade.com.br
+- augusto.ribeiro@associacaoalecrimdourado.com.br
+- rosimeire.alves@associacaoalecrimdourado.com.br
+
+Segurança e rastreabilidade:
+- autenticação server-to-server por Microsoft Entra ID / OAuth 2.0;
+- nenhuma senha do Outlook é armazenada no código;
+- exige a permissão de aplicativo Microsoft Graph `Mail.Send` com consentimento administrativo;
+- registra tentativas, sucesso, falha, data/hora, remetente e destinatários;
+- não duplica automaticamente um atestado que já foi enviado;
+- em caso de falha, o RH pode usar `Reenviar e-mail`;
+- o status `Conferido` permanece registrado mesmo quando o envio falha.
+
+Variáveis necessárias no Render:
+- `MICROSOFT_TENANT_ID`
+- `MICROSOFT_CLIENT_ID`
+- `MICROSOFT_CLIENT_SECRET`
+- `M365_MAIL_SENDER`
+- `M365_CERTIFICATE_RECIPIENTS`
+
+Observação técnica:
+O envio atual utiliza o endpoint simples `sendMail` com anexo em base64 e limita o arquivo a 2,5 MB para manter margem segura no tamanho da requisição. Arquivos maiores ficam registrados como falha e não são enviados silenciosamente.

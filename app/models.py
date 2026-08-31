@@ -163,6 +163,34 @@ class MedicalCertificate(db.Model):
     employee = db.relationship("Employee")
 
 
+class MedicalCertificateEmailDelivery(db.Model):
+    """Registro do encaminhamento do atestado conferido para a contabilidade/RH."""
+    id = db.Column(db.Integer, primary_key=True)
+    certificate_id = db.Column(
+        db.Integer,
+        db.ForeignKey("medical_certificate.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    status = db.Column(db.String(20), nullable=False, default="pending")  # pending/sent/failed
+    sender = db.Column(db.String(255), nullable=False)
+    recipients_json = db.Column(db.Text, nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_attempt_at = db.Column(db.DateTime)
+    sent_at = db.Column(db.DateTime)
+    last_error = db.Column(db.Text)
+    triggered_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    updated_at = db.Column(db.DateTime, default=now_local, onupdate=now_local, nullable=False)
+
+    certificate = db.relationship(
+        "MedicalCertificate",
+        backref=db.backref("email_delivery", uselist=False, cascade="all, delete-orphan"),
+    )
+    trigger_user = db.relationship("User", foreign_keys=[triggered_by])
+
+
 class MedicalCertificateAllowance(db.Model):
     """Horas justificadas pelo RH em razão de um atestado recebido."""
     id = db.Column(db.Integer, primary_key=True)

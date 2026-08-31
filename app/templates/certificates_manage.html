@@ -20,6 +20,22 @@
   </form>
 </div>
 
+<div class="panel certificate-mail-panel">
+  <div class="section-heading">
+    <div>
+      <h2>Encaminhamento automático pelo Outlook</h2>
+      {% if mail_settings.configured %}
+        <p class="muted">Integração Microsoft 365 configurada. Ao alterar um atestado para <strong>Conferido</strong>, o arquivo será encaminhado automaticamente.</p>
+      {% else %}
+        <p class="muted">A integração Microsoft 365 ainda não está completa no servidor. Os atestados podem ser conferidos, mas o envio ficará com status de erro até as credenciais serem configuradas.</p>
+      {% endif %}
+    </div>
+    <span class="badge {{'approved' if mail_settings.configured else 'pending'}}">{{'Configurado' if mail_settings.configured else 'Pendente de configuração'}}</span>
+  </div>
+  {% if mail_settings.sender %}<p><strong>Remetente:</strong> {{mail_settings.sender}}</p>{% endif %}
+  {% if mail_settings.recipients %}<p><strong>Destinatários:</strong> {{mail_settings.recipients|join(', ')}}</p>{% endif %}
+</div>
+
 <div class="panel batch-print-panel">
   <div class="section-heading">
     <div>
@@ -44,7 +60,7 @@
 <div class="panel">
   <div class="heading"><div><h2>Documentos</h2><p class="muted">{{rows|length}} registro(s) encontrado(s).</p></div></div>
   <div class="table-wrap"><table>
-    <tr><th>Colaborador</th><th>Início</th><th>Dias</th><th>Observação</th><th>Enviado em</th><th>Status</th><th>Arquivo</th><th>Abono por atestado</th><th>Conferência RH</th></tr>
+    <tr><th>Colaborador</th><th>Início</th><th>Dias</th><th>Observação</th><th>Enviado em</th><th>Status</th><th>Arquivo</th><th>Abono por atestado</th><th>Conferência RH</th><th>Outlook</th></tr>
     {% for c in rows %}
     <tr>
       <td><strong>{{c.employee.full_name}}</strong><br><small class="muted">{{c.employee.job_title}} · {{c.employee.project}}</small></td>
@@ -85,8 +101,26 @@
           <button type="submit">Salvar</button>
         </form>
       </td>
+      <td class="certificate-email-cell">
+        {% if c.email_delivery and c.email_delivery.status=='sent' %}
+          <span class="badge approved">Enviado</span>
+          <small class="muted">{{c.email_delivery.sent_at.strftime('%d/%m/%Y %H:%M') if c.email_delivery.sent_at else ''}}</small>
+        {% elif c.email_delivery and c.email_delivery.status=='failed' %}
+          <span class="badge rejected">Erro no envio</span>
+          <small class="muted" title="{{c.email_delivery.last_error or ''}}">Tentativa {{c.email_delivery.attempts}}</small>
+          {% if c.status=='conferido' %}
+          <form method="post" action="{{url_for('rh.certificate_resend_email',certificate_id=c.id)}}">
+            <button type="submit" class="secondary">Reenviar e-mail</button>
+          </form>
+          {% endif %}
+        {% elif c.email_delivery %}
+          <span class="badge pending">Processando</span>
+        {% else %}
+          <span class="muted">Aguardando conferência</span>
+        {% endif %}
+      </td>
     </tr>
-    {% else %}<tr><td colspan="9">Nenhum atestado encontrado.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="10">Nenhum atestado encontrado.</td></tr>{% endfor %}
   </table></div>
 </div>
 {% endblock %}
