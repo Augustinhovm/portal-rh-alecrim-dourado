@@ -360,6 +360,89 @@ class PayrollRubric(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey("user.id"))
 
 
+
+class PayrollCompetence(db.Model):
+    """Competência mensal da pré-folha."""
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False, index=True)
+    month = db.Column(db.Integer, nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default="open")  # open/calculated
+    calculated_at = db.Column(db.DateTime)
+    calculated_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    calculator = db.relationship("User", foreign_keys=[calculated_by])
+    creator = db.relationship("User", foreign_keys=[created_by])
+    __table_args__ = (
+        db.UniqueConstraint("year", "month", name="uq_payroll_competence_year_month"),
+    )
+
+
+class PayrollManualEvent(db.Model):
+    """Evento variável confirmado pelo RH para uma competência."""
+    id = db.Column(db.Integer, primary_key=True)
+    competence_id = db.Column(db.Integer, db.ForeignKey("payroll_competence.id"), nullable=False, index=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    rubric_id = db.Column(db.Integer, db.ForeignKey("payroll_rubric.id"), nullable=False)
+    reference_quantity = db.Column(db.Numeric(12, 4))
+    reference_label = db.Column(db.String(80))
+    amount = db.Column(db.Numeric(12, 2))
+    notes = db.Column(db.String(255))
+    source = db.Column(db.String(30), nullable=False, default="manual")
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    competence = db.relationship("PayrollCompetence", backref=db.backref("manual_events", cascade="all, delete-orphan"))
+    employee = db.relationship("Employee")
+    rubric = db.relationship("PayrollRubric")
+    creator = db.relationship("User", foreign_keys=[created_by])
+
+
+class PayrollEmployeeCalculation(db.Model):
+    """Resultado materializado do cálculo mensal por colaborador."""
+    id = db.Column(db.Integer, primary_key=True)
+    competence_id = db.Column(db.Integer, db.ForeignKey("payroll_competence.id"), nullable=False, index=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    base_salary = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    hourly_rate = db.Column(db.Numeric(12, 6), nullable=False, default=0)
+    gross_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    inss_base = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    inss_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    irrf_taxable_income = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    irrf_base = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    irrf_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    deductions_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    net_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    calculation_notes = db.Column(db.Text)
+    calculated_at = db.Column(db.DateTime, default=now_local, nullable=False)
+
+    competence = db.relationship("PayrollCompetence", backref=db.backref("calculations", cascade="all, delete-orphan"))
+    employee = db.relationship("Employee")
+    __table_args__ = (
+        db.UniqueConstraint("competence_id", "employee_id", name="uq_payroll_calc_comp_employee"),
+    )
+
+
+class PayrollCalculationItem(db.Model):
+    """Memória de cálculo por rubrica."""
+    id = db.Column(db.Integer, primary_key=True)
+    calculation_id = db.Column(db.Integer, db.ForeignKey("payroll_employee_calculation.id"), nullable=False, index=True)
+    rubric_code = db.Column(db.String(40), nullable=False)
+    description = db.Column(db.String(180), nullable=False)
+    nature = db.Column(db.String(30), nullable=False)
+    reference = db.Column(db.String(120))
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    source = db.Column(db.String(30), nullable=False, default="engine")
+    inss_incidence = db.Column(db.Boolean, default=False, nullable=False)
+    irrf_incidence = db.Column(db.Boolean, default=False, nullable=False)
+    fgts_incidence = db.Column(db.Boolean, default=False, nullable=False)
+    sort_order = db.Column(db.Integer, default=100, nullable=False)
+
+    calculation = db.relationship("PayrollEmployeeCalculation", backref=db.backref("items", cascade="all, delete-orphan"))
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))

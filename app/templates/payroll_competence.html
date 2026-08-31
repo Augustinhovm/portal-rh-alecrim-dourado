@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}Pré-folha {{'%02d'|format(comp.month)}}/{{comp.year}} · Portal RH{% endblock %}
+{% block content %}
+<div class="heading payroll-heading"><div><span class="executive-kicker">MOTOR DE CÁLCULO</span><h1>Pré-folha · {{'%02d'|format(comp.month)}}/{{comp.year}}</h1><p class="muted">Cálculo preliminar com memória por rubrica. Não substitui o fechamento oficial/eSocial.</p></div>
+<form method="post" action="{{url_for('rh.payroll_competence_calculate',competence_id=comp.id)}}"><button type="submit">Calcular / Recalcular competência</button></form></div>
+
+<div class="payroll-foundation-grid payroll-total-grid">
+<div class="payroll-foundation-card"><span>Status</span><strong>{{'Calculada' if comp.status=='calculated' else 'Aberta'}}</strong></div>
+<div class="payroll-foundation-card"><span>Bruto calculado</span><strong>R$ {{'%.2f'|format(totals.gross|float)}}</strong></div>
+<div class="payroll-foundation-card"><span>Descontos</span><strong>R$ {{'%.2f'|format(totals.deductions|float)}}</strong></div>
+<div class="payroll-foundation-card"><span>Líquido estimado</span><strong>R$ {{'%.2f'|format(totals.net|float)}}</strong></div>
+</div>
+
+<div class="alert warning"><strong>Critério de segurança:</strong> horas extras e plantões que já foram lançados no banco de horas não são convertidos automaticamente em dinheiro. Para pagar uma verba variável, o RH deve classificá-la abaixo. Faltas também não são presumidas apenas por ausência de ponto.</div>
+
+{% for emp in employees %}
+<section class="panel payroll-employee-run" id="emp-{{emp.id}}">
+  {% set calc=calculations.get(emp.id) %}
+  <div class="section-heading"><div><h2>{{emp.full_name}}</h2><p class="muted">{{emp.job_title}} · {{emp.weekly_hours or 44}}h semanais</p></div>
+  {% if calc %}<a class="btn secondary" href="{{url_for('rh.payroll_calculation_detail',calculation_id=calc.id)}}">Ver memória completa</a>{% endif %}</div>
+  {% if warnings.get(emp.id) %}<div class="payroll-warning-list">{% for w in warnings.get(emp.id) %}<div>⚠ {{w}}</div>{% endfor %}</div>{% endif %}
+  <div class="payroll-employee-values">
+    <div><span>Salário-base</span><strong>{% if emp.payroll_config %}R$ {{'%.2f'|format(emp.payroll_config.monthly_salary|float)}}{% else %}Não configurado{% endif %}</strong></div>
+    <div><span>Bruto</span><strong>{% if calc %}R$ {{'%.2f'|format(calc.gross_amount|float)}}{% else %}—{% endif %}</strong></div>
+    <div><span>INSS</span><strong>{% if calc %}R$ {{'%.2f'|format(calc.inss_amount|float)}}{% else %}—{% endif %}</strong></div>
+    <div><span>IRRF</span><strong>{% if calc %}R$ {{'%.2f'|format(calc.irrf_amount|float)}}{% else %}—{% endif %}</strong></div>
+    <div><span>Líquido estimado</span><strong>{% if calc %}R$ {{'%.2f'|format(calc.net_amount|float)}}{% else %}—{% endif %}</strong></div>
+  </div>
+
+  {% if events_by_employee.get(emp.id) %}<div class="table-wrap"><table><tr><th>Evento variável</th><th>Referência</th><th>Valor informado</th><th>Ação</th></tr>
+  {% for ev in events_by_employee.get(emp.id) %}<tr><td>{{ev.rubric.code}} · {{ev.rubric.description}}</td><td>{{ev.reference_quantity or ev.reference_label or '—'}}</td><td>{% if ev.amount is not none %}R$ {{'%.2f'|format(ev.amount|float)}}{% else %}Automático ao calcular{% endif %}</td><td><form method="post" action="{{url_for('rh.payroll_event_delete',event_id=ev.id)}}"><button class="secondary" type="submit">Remover</button></form></td></tr>{% endfor %}</table></div>{% endif %}
+
+  <details class="admin-tool"><summary>Adicionar verba / desconto desta competência</summary>
+  <form method="post" action="{{url_for('rh.payroll_event_add',competence_id=comp.id)}}" class="form-grid compact-form">
+    <input type="hidden" name="employee_id" value="{{emp.id}}">
+    <label>Rubrica<select name="rubric_id" required>{% for rub in rubrics %}<option value="{{rub.id}}">{{rub.code}} · {{rub.description}}</option>{% endfor %}</select></label>
+    <label>Quantidade / horas / dias<input name="reference_quantity" inputmode="decimal" placeholder="Ex.: 40 para 40 horas HE"></label>
+    <label>Referência textual<input name="reference_label" placeholder="Ex.: decisão RH 31/08"></label>
+    <label>Valor em R$<input name="amount" inputmode="decimal" placeholder="Deixe vazio apenas para HE e FALTA"></label>
+    <label class="full">Observação<input name="notes" placeholder="Motivo e documento de suporte"></label>
+    <div class="full payroll-event-help">HE50/HE65/HE100: se o valor ficar vazio, o Portal calcula pela hora normal usando divisor = jornada semanal × 5. FALTA: quantidade representa dias e usa salário/30. Adicionais como insalubridade, periculosidade e noturno exigem valor informado pelo RH nesta etapa.</div>
+    <div class="full"><button type="submit">Adicionar evento</button></div>
+  </form></details>
+</section>
+{% endfor %}
+{% endblock %}

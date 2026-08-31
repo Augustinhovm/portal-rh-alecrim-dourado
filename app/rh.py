@@ -1,11 +1,11 @@
-import os, uuid, re, unicodedata, hashlib, mimetypes
+import os, uuid, re, unicodedata, hashlib, mimetypes, json
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from datetime import datetime, date, timedelta
 import calendar
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, send_from_directory, send_file
 from flask_login import login_required, current_user
-from sqlalchemy import func
+from sqlalchemy import func, and_, or_
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
 from reportlab.lib import colors
@@ -17,7 +17,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, PayrollCompetence, PayrollManualEvent, PayrollEmployeeCalculation, PayrollCalculationItem, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
 
@@ -755,11 +755,19 @@ def _ensure_default_payroll_rubrics():
         ("VRVA", "Vale-refeição / alimentação", "deduction", False, False, False, None),
         ("PLANO", "Plano de saúde", "deduction", False, False, False, None),
         ("PENSAO", "Pensão alimentícia", "deduction", False, False, False, None),
-        ("FALTA", "Faltas / ausências descontáveis", "deduction", False, False, False, None),
+        ("FALTA", "Faltas / ausências descontáveis", "deduction", True, True, True, None),
+        ("DSR_HE", "DSR sobre horas extras", "earning", True, True, True, None),
     ]
     changed = False
     for code, description, nature, inss, fgts, irrf, pct in defaults:
-        if PayrollRubric.query.filter_by(code=code).first():
+        existing = PayrollRubric.query.filter_by(code=code).first()
+        if existing:
+            # Corrige rubricas-padrão essenciais também em bancos criados pela V9.3.
+            if code == "FALTA":
+                existing.inss_incidence = True
+                existing.fgts_incidence = True
+                existing.irrf_incidence = True
+                changed = True
             continue
         db.session.add(PayrollRubric(
             code=code,
@@ -1352,32 +1360,306 @@ def pending_center():
 
 
 
+
+def _money(value):
+    return Decimal(value or 0).quantize(Decimal("0.01"))
+
+
+def _param(code, ref_date):
+    row = (
+        PayrollLegalParameter.query
+        .filter(
+            PayrollLegalParameter.code == code,
+            PayrollLegalParameter.effective_from <= ref_date,
+            or_(PayrollLegalParameter.effective_to.is_(None), PayrollLegalParameter.effective_to >= ref_date),
+        )
+        .order_by(PayrollLegalParameter.effective_from.desc())
+        .first()
+    )
+    if not row:
+        raise ValueError(f"Parâmetro legal não encontrado para {code} em {ref_date.strftime('%m/%Y')}.")
+    return Decimal(row.value)
+
+
+def _payroll_period(year, month):
+    start = date(year, month, 1)
+    end = date(year, month, calendar.monthrange(year, month)[1])
+    return start, end
+
+
+def _payroll_hourly_rate(emp, salary):
+    weekly = Decimal(str(emp.weekly_hours or 44))
+    divisor = weekly * Decimal("5")
+    if divisor <= 0:
+        divisor = Decimal("220")
+    return (Decimal(salary) / divisor).quantize(Decimal("0.000001")), divisor
+
+
+def _calc_inss_2026(base, ref_date):
+    base = max(Decimal("0"), Decimal(base))
+    limits = [
+        _param("inss_band_1_limit", ref_date),
+        _param("inss_band_2_limit", ref_date),
+        _param("inss_band_3_limit", ref_date),
+        _param("inss_band_4_limit", ref_date),
+    ]
+    rates = [
+        _param("inss_band_1_rate", ref_date) / 100,
+        _param("inss_band_2_rate", ref_date) / 100,
+        _param("inss_band_3_rate", ref_date) / 100,
+        _param("inss_band_4_rate", ref_date) / 100,
+    ]
+    capped = min(base, limits[-1])
+    previous = Decimal("0")
+    total = Decimal("0")
+    detail = []
+    for idx, (limit, rate) in enumerate(zip(limits, rates), 1):
+        portion = min(capped, limit) - previous
+        if portion > 0:
+            contribution = (portion * rate).quantize(Decimal("0.01"))
+            total += contribution
+            detail.append({"band": idx, "base": portion, "rate": rate * 100, "amount": contribution})
+        previous = limit
+        if capped <= limit:
+            break
+    return total.quantize(Decimal("0.01")), detail
+
+
+def _calc_irrf_2026(taxable_income, inss_amount, dependent_count, pension_deduction, ref_date):
+    taxable_income = max(Decimal("0"), Decimal(taxable_income))
+    dep_deduction = _param("irrf_dependent_deduction", ref_date) * Decimal(int(dependent_count or 0))
+    simplified = _param("irrf_simplified_discount", ref_date)
+    legal_deductions = Decimal(inss_amount) + dep_deduction + max(Decimal("0"), Decimal(pension_deduction or 0))
+    chosen_deduction = max(simplified, legal_deductions)
+    deduction_method = "simplificado" if simplified >= legal_deductions else "deduções legais"
+    base = max(Decimal("0"), taxable_income - chosen_deduction)
+
+    l1 = _param("irrf_band_1_limit", ref_date)
+    l2 = _param("irrf_band_2_limit", ref_date)
+    l3 = _param("irrf_band_3_limit", ref_date)
+    l4 = _param("irrf_band_4_limit", ref_date)
+    if base <= l1:
+        rate, deduction = Decimal("0"), Decimal("0")
+    elif base <= l2:
+        rate, deduction = _param("irrf_band_2_rate", ref_date)/100, _param("irrf_band_2_deduction", ref_date)
+    elif base <= l3:
+        rate, deduction = _param("irrf_band_3_rate", ref_date)/100, _param("irrf_band_3_deduction", ref_date)
+    elif base <= l4:
+        rate, deduction = _param("irrf_band_4_rate", ref_date)/100, _param("irrf_band_4_deduction", ref_date)
+    else:
+        rate, deduction = _param("irrf_band_5_rate", ref_date)/100, _param("irrf_band_5_deduction", ref_date)
+
+    before_reduction = max(Decimal("0"), (base * rate - deduction).quantize(Decimal("0.01")))
+    zero_limit = _param("irrf_reduction_zero_limit", ref_date)
+    end_limit = _param("irrf_reduction_end_limit", ref_date)
+    if taxable_income <= zero_limit:
+        reduction = before_reduction
+    elif taxable_income <= end_limit:
+        constant = _param("irrf_reduction_formula_constant", ref_date)
+        factor = _param("irrf_reduction_formula_factor", ref_date)
+        reduction = max(Decimal("0"), constant - factor * taxable_income)
+        reduction = min(before_reduction, reduction.quantize(Decimal("0.01")))
+    else:
+        reduction = Decimal("0")
+    tax = max(Decimal("0"), before_reduction - reduction).quantize(Decimal("0.01"))
+    return tax, {
+        "taxable_income": taxable_income,
+        "legal_deductions": legal_deductions.quantize(Decimal("0.01")),
+        "simplified": simplified.quantize(Decimal("0.01")),
+        "chosen_deduction": chosen_deduction.quantize(Decimal("0.01")),
+        "deduction_method": deduction_method,
+        "base": base.quantize(Decimal("0.01")),
+        "rate": rate * 100,
+        "table_deduction": deduction,
+        "before_reduction": before_reduction,
+        "reduction": reduction.quantize(Decimal("0.01")),
+    }
+
+
+def _month_data_warnings(emp, year, month):
+    start, end = _payroll_period(year, month)
+    warnings = []
+    if not emp.payroll_config or Decimal(emp.payroll_config.monthly_salary or 0) <= 0:
+        warnings.append("Salário-base não configurado.")
+    if emp.admission_date and start <= emp.admission_date <= end:
+        warnings.append("Admissão ocorreu nesta competência: confira eventual proporcionalidade antes do fechamento oficial.")
+    approved_overtime = Request.query.filter(
+        Request.employee_id == emp.id,
+        Request.request_type == "overtime",
+        Request.status == "approved",
+        Request.request_date >= start,
+        Request.request_date <= end,
+    ).all()
+    if approved_overtime:
+        minutes = sum(int(x.minutes or 0) for x in approved_overtime)
+        warnings.append(
+            f"Há {minutes//60:02d}:{minutes%60:02d} de horas extras aprovadas no período. "
+            "Elas já alimentam o banco de horas do Portal e não são pagas automaticamente; classifique como evento de folha somente se houver pagamento em dinheiro."
+        )
+    duties = WeekendDuty.query.filter(
+        WeekendDuty.employee_id == emp.id,
+        WeekendDuty.duty_date >= start,
+        WeekendDuty.duty_date <= end,
+    ).all()
+    if duties:
+        minutes = sum(int(x.minutes or 0) for x in duties)
+        warnings.append(
+            f"Há {minutes//60:02d}:{minutes%60:02d} de plantões registrados no banco. Não foram incluídos automaticamente como pagamento."
+        )
+    cert_minutes = (
+        db.session.query(func.coalesce(func.sum(MedicalCertificateAllowance.minutes), 0))
+        .join(MedicalCertificate, MedicalCertificate.id == MedicalCertificateAllowance.certificate_id)
+        .filter(
+            MedicalCertificateAllowance.employee_id == emp.id,
+            MedicalCertificate.start_date <= end,
+            MedicalCertificate.start_date >= start,
+        ).scalar() or 0
+    )
+    if cert_minutes:
+        warnings.append(f"Atestados no período justificam {int(cert_minutes)//60:02d}:{int(cert_minutes)%60:02d}. Nenhum desconto foi criado automaticamente.")
+    return warnings
+
+
+def _calculate_payroll_employee(competence, emp):
+    start, end = _payroll_period(competence.year, competence.month)
+    ref_date = end
+    config = emp.payroll_config
+    if not config or Decimal(config.monthly_salary or 0) <= 0:
+        return None, ["Salário-base não configurado."]
+
+    salary = _money(config.monthly_salary)
+    hourly, divisor = _payroll_hourly_rate(emp, salary)
+    existing = PayrollEmployeeCalculation.query.filter_by(competence_id=competence.id, employee_id=emp.id).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.flush()
+    calc = PayrollEmployeeCalculation(
+        competence_id=competence.id,
+        employee_id=emp.id,
+        base_salary=salary,
+        hourly_rate=hourly,
+    )
+    db.session.add(calc); db.session.flush()
+
+    items=[]
+    def add_item(code, description, nature, amount, reference=None, source="engine", inss=False, irrf=False, fgts=False, order=100):
+        amount=_money(amount)
+        row=PayrollCalculationItem(
+            calculation_id=calc.id, rubric_code=code, description=description, nature=nature,
+            reference=reference, amount=amount, source=source,
+            inss_incidence=inss, irrf_incidence=irrf, fgts_incidence=fgts, sort_order=order,
+        )
+        db.session.add(row); items.append(row); return row
+
+    # Salário-base integral. Competências com admissão no mês ficam sinalizadas para conferência.
+    add_item("SALARIO", "Salário-base", "earning", salary, "Mensal", "engine", True, True, True, 10)
+
+    # Eventos variáveis confirmados pelo RH.
+    events=PayrollManualEvent.query.filter_by(competence_id=competence.id, employee_id=emp.id).all()
+    for ev in events:
+        rub=ev.rubric
+        amount=Decimal(ev.amount) if ev.amount is not None else None
+        qty=Decimal(ev.reference_quantity) if ev.reference_quantity is not None else None
+        ref=ev.reference_label or None
+        if amount is None and qty is not None and rub.code.startswith("HE") and rub.default_percentage is not None:
+            pct=Decimal(rub.default_percentage)
+            amount=(hourly * qty * (Decimal("1") + pct/100)).quantize(Decimal("0.01"))
+            ref=ref or f"{qty}h × R$ {hourly:.4f} × {(Decimal('1')+pct/100):.4f}"
+        elif amount is None and qty is not None and rub.code == "FALTA":
+            amount=(salary/Decimal("30")*qty).quantize(Decimal("0.01"))
+            ref=ref or f"{qty} dia(s) × salário/30"
+        elif amount is None:
+            amount=Decimal("0")
+        add_item(
+            rub.code, rub.description, rub.nature, amount, ref, "manual",
+            rub.inss_incidence, rub.irrf_incidence, rub.fgts_incidence, 40,
+        )
+
+    # Salário-família: somente dependentes marcados pelo RH como elegíveis.
+    eligible=sum(1 for dep in emp.payroll_dependents if dep.active and dep.salary_family_eligible)
+    income_for_family=sum(i.amount for i in items if i.nature=="earning" and i.irrf_incidence)
+    sf_limit=_param("salary_family_income_limit",ref_date)
+    if eligible and income_for_family <= sf_limit:
+        quota=_param("salary_family_quota",ref_date)
+        add_item("SALFAM","Salário-família","earning",quota*eligible,f"{eligible} cota(s)","engine",False,False,False,50)
+
+    # Bases de INSS e IRRF vêm das incidências das rubricas.
+    inss_base=sum(i.amount if i.nature=="earning" else -i.amount for i in items if i.inss_incidence)
+    inss_base=max(Decimal("0"),inss_base)
+    inss_amount,inss_detail=_calc_inss_2026(inss_base,ref_date)
+    add_item("INSS","INSS empregado","deduction",inss_amount,"Progressivo por faixa","engine",False,False,False,80)
+
+    irrf_taxable=sum(i.amount if i.nature=="earning" else -i.amount for i in items if i.irrf_incidence)
+    irrf_taxable=max(Decimal("0"),irrf_taxable)
+    dep_count=sum(1 for dep in emp.payroll_dependents if dep.active and dep.irrf_dependent)
+    pension=_money(config.pension_discount_value)
+    irrf_amount,irrf_detail=_calc_irrf_2026(irrf_taxable,inss_amount,dep_count,pension,ref_date)
+    if irrf_amount > 0:
+        add_item("IRRF","IRRF","deduction",irrf_amount,f"Base R$ {irrf_detail['base']:.2f}","engine",False,False,False,90)
+
+    # Descontos fixos configurados.
+    vt=Decimal("0")
+    if config.has_transport_voucher and Decimal(config.transport_discount_percent or 0)>0:
+        vt=(salary*Decimal(config.transport_discount_percent)/100).quantize(Decimal("0.01"))
+        add_item("VT","Vale-transporte","deduction",vt,f"{Decimal(config.transport_discount_percent):.2f}% do salário-base","config",False,False,False,100)
+    if Decimal(config.food_discount_value or 0)>0:
+        add_item("VRVA","Vale-refeição / alimentação","deduction",config.food_discount_value,"Valor fixo","config",False,False,False,101)
+    if Decimal(config.health_plan_discount_value or 0)>0:
+        add_item("PLANO","Plano de saúde","deduction",config.health_plan_discount_value,"Valor fixo","config",False,False,False,102)
+    if pension>0:
+        add_item("PENSAO","Pensão alimentícia","deduction",pension,"Valor configurado","config",False,False,False,103)
+    if Decimal(config.other_fixed_discount_value or 0)>0:
+        add_item("OUTRO","Outro desconto fixo","deduction",config.other_fixed_discount_value,config.other_fixed_discount_description or "Valor fixo","config",False,False,False,104)
+
+    gross=sum(i.amount for i in items if i.nature=="earning")
+    deductions=sum(i.amount for i in items if i.nature=="deduction")
+    net=gross-deductions
+    warnings=_month_data_warnings(emp,competence.year,competence.month)
+    if config.has_transport_voucher and Decimal(config.transport_discount_percent or 0)>6:
+        warnings.append("Percentual de vale-transporte acima de 6%: confira a parametrização antes de usar a prévia.")
+
+    calc.gross_amount=_money(gross)
+    calc.inss_base=_money(inss_base)
+    calc.inss_amount=_money(inss_amount)
+    calc.irrf_taxable_income=_money(irrf_taxable)
+    calc.irrf_base=_money(irrf_detail["base"])
+    calc.irrf_amount=_money(irrf_amount)
+    calc.deductions_amount=_money(deductions)
+    calc.net_amount=_money(net)
+    calc.calculation_notes=json.dumps({
+        "warnings":warnings,
+        "hourly_divisor":str(divisor),
+        "inss":[{"band":d["band"],"base":str(d["base"]),"rate":str(d["rate"]),"amount":str(d["amount"])} for d in inss_detail],
+        "irrf":{k:str(v) for k,v in irrf_detail.items()},
+    },ensure_ascii=False)
+    calc.calculated_at=now_local()
+    return calc,warnings
+
+
+def _competence_from_value(value):
+    try:
+        year,month=[int(x) for x in value.split("-")]
+        if not 1<=month<=12: raise ValueError
+        return year,month
+    except Exception:
+        raise ValueError("Competência inválida. Use o formato AAAA-MM.")
+
 @bp.route("/payroll")
 @login_required
 @roles_required(ROLE_ADMIN)
 def payroll_center():
     _ensure_payroll_2026_parameters()
     _ensure_default_payroll_rubrics()
-
     employees = Employee.query.order_by(Employee.is_active.desc(), Employee.full_name.asc()).all()
     configured = sum(1 for emp in employees if emp.payroll_config and Decimal(emp.payroll_config.monthly_salary or 0) > 0)
     active = sum(1 for emp in employees if emp.is_active)
     dependents = PayrollDependent.query.filter_by(active=True).count()
     rubrics = PayrollRubric.query.filter_by(active=True).order_by(PayrollRubric.code.asc()).all()
-    parameters = PayrollLegalParameter.query.order_by(
-        PayrollLegalParameter.effective_from.desc(),
-        PayrollLegalParameter.code.asc()
-    ).all()
-
-    return render_template(
-        "payroll_center.html",
-        employees=employees,
-        configured=configured,
-        active=active,
-        dependents=dependents,
-        rubrics=rubrics,
-        parameters=parameters,
-    )
+    parameters = PayrollLegalParameter.query.order_by(PayrollLegalParameter.effective_from.desc(),PayrollLegalParameter.code.asc()).all()
+    recent_competences = PayrollCompetence.query.order_by(PayrollCompetence.year.desc(), PayrollCompetence.month.desc()).limit(12).all()
+    return render_template("payroll_center.html", employees=employees, configured=configured, active=active,
+        dependents=dependents, rubrics=rubrics, parameters=parameters, recent_competences=recent_competences,
+        current_competence=today_local().strftime("%Y-%m"))
 
 
 @bp.route("/employees/<int:employee_id>/payroll-config", methods=["POST"])
@@ -1564,6 +1846,121 @@ def payroll_legal_parameter_add():
     flash("Parâmetro legal cadastrado.", "success")
     return redirect(url_for("rh.payroll_center") + "#parametros")
 
+
+
+@bp.route("/payroll/competence", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_competence_open():
+    try:
+        year,month=_competence_from_value(request.form.get("competence") or "")
+    except ValueError as exc:
+        flash(str(exc),"danger"); return redirect(url_for("rh.payroll_center"))
+    comp=PayrollCompetence.query.filter_by(year=year,month=month).first()
+    if not comp:
+        comp=PayrollCompetence(year=year,month=month,created_by=current_user.id)
+        db.session.add(comp); db.session.flush()
+        log_action("abriu competência de pré-folha","payroll_competence",comp.id,f"{month:02d}/{year}")
+        db.session.commit()
+    return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
+
+@bp.route("/payroll/competence/<int:competence_id>")
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_competence_detail(competence_id):
+    _ensure_payroll_2026_parameters(); _ensure_default_payroll_rubrics()
+    comp=db.get_or_404(PayrollCompetence,competence_id)
+    employees=Employee.query.filter_by(is_active=True).order_by(Employee.full_name.asc()).all()
+    calculations={c.employee_id:c for c in PayrollEmployeeCalculation.query.filter_by(competence_id=comp.id).all()}
+    warnings={emp.id:_month_data_warnings(emp,comp.year,comp.month) for emp in employees}
+    rubrics=PayrollRubric.query.filter_by(active=True).order_by(PayrollRubric.nature.asc(),PayrollRubric.code.asc()).all()
+    events=PayrollManualEvent.query.filter_by(competence_id=comp.id).order_by(PayrollManualEvent.employee_id,PayrollManualEvent.id).all()
+    events_by_employee={}
+    for ev in events: events_by_employee.setdefault(ev.employee_id,[]).append(ev)
+    totals={
+        "gross":sum(Decimal(c.gross_amount or 0) for c in calculations.values()),
+        "deductions":sum(Decimal(c.deductions_amount or 0) for c in calculations.values()),
+        "net":sum(Decimal(c.net_amount or 0) for c in calculations.values()),
+    }
+    return render_template("payroll_competence.html",comp=comp,employees=employees,calculations=calculations,
+        warnings=warnings,rubrics=rubrics,events_by_employee=events_by_employee,totals=totals)
+
+
+@bp.route("/payroll/competence/<int:competence_id>/events",methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_event_add(competence_id):
+    comp=db.get_or_404(PayrollCompetence,competence_id)
+    emp=db.get_or_404(Employee,request.form.get("employee_id",type=int))
+    rub=db.get_or_404(PayrollRubric,request.form.get("rubric_id",type=int))
+    qty_raw=(request.form.get("reference_quantity") or "").strip().replace(",",".")
+    amount_raw=(request.form.get("amount") or "").strip()
+    try:
+        qty=Decimal(qty_raw) if qty_raw else None
+        amount=parse_money(amount_raw) if amount_raw else None
+    except (InvalidOperation,ValueError):
+        flash("Quantidade ou valor inválido.","danger"); return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id)+f"#emp-{emp.id}")
+    if amount is None and qty is None:
+        flash("Informe uma quantidade/referência ou um valor.","danger"); return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id)+f"#emp-{emp.id}")
+    if amount is None and not (rub.code.startswith("HE") or rub.code=="FALTA"):
+        flash("Para esta rubrica, informe o valor monetário do evento. O Portal não presume base de cálculo para adicionais que dependem de laudo, CCT ou enquadramento.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id)+f"#emp-{emp.id}")
+    ev=PayrollManualEvent(competence_id=comp.id,employee_id=emp.id,rubric_id=rub.id,reference_quantity=qty,
+        reference_label=(request.form.get("reference_label") or "").strip() or None,amount=amount,
+        notes=(request.form.get("notes") or "").strip() or None,created_by=current_user.id)
+    db.session.add(ev); db.session.flush()
+    log_action("incluiu evento na pré-folha","payroll_event",ev.id,f"{emp.full_name}; {rub.code}; {comp.month:02d}/{comp.year}")
+    comp.status="open"; db.session.commit()
+    flash("Evento incluído. Recalcule a competência para atualizar os valores.","success")
+    return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id)+f"#emp-{emp.id}")
+
+
+@bp.route("/payroll/events/<int:event_id>/delete",methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_event_delete(event_id):
+    ev=db.get_or_404(PayrollManualEvent,event_id); cid=ev.competence_id; eid=ev.employee_id
+    log_action("removeu evento da pré-folha","payroll_event",ev.id,f"{ev.employee.full_name}; {ev.rubric.code}")
+    ev.competence.status="open"; db.session.delete(ev); db.session.commit()
+    flash("Evento removido. Recalcule a competência.","success")
+    return redirect(url_for("rh.payroll_competence_detail",competence_id=cid)+f"#emp-{eid}")
+
+
+@bp.route("/payroll/competence/<int:competence_id>/calculate",methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_competence_calculate(competence_id):
+    _ensure_payroll_2026_parameters(); _ensure_default_payroll_rubrics()
+    comp=db.get_or_404(PayrollCompetence,competence_id)
+    employees=Employee.query.filter_by(is_active=True).order_by(Employee.full_name.asc()).all()
+    calculated=0; skipped=[]
+    try:
+        for emp in employees:
+            calc,warns=_calculate_payroll_employee(comp,emp)
+            if calc: calculated+=1
+            else: skipped.append(emp.full_name)
+        comp.status="calculated"; comp.calculated_at=now_local(); comp.calculated_by=current_user.id
+        log_action("calculou pré-folha","payroll_competence",comp.id,f"{comp.month:02d}/{comp.year}; {calculated} colaboradores")
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback(); flash(f"Não foi possível calcular: {exc}","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    msg=f"Pré-folha calculada para {calculated} colaborador(es)."
+    if skipped: msg+=f" {len(skipped)} sem salário configurado foram ignorados."
+    flash(msg,"success")
+    return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
+
+@bp.route("/payroll/calculation/<int:calculation_id>")
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_calculation_detail(calculation_id):
+    calc=db.get_or_404(PayrollEmployeeCalculation,calculation_id)
+    items=PayrollCalculationItem.query.filter_by(calculation_id=calc.id).order_by(PayrollCalculationItem.sort_order,PayrollCalculationItem.id).all()
+    try: detail=json.loads(calc.calculation_notes or "{}")
+    except Exception: detail={}
+    return render_template("payroll_calculation_detail.html",calc=calc,items=items,detail=detail)
 
 @bp.route("/employees")
 @login_required

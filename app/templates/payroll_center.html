@@ -16,8 +16,20 @@
   <div class="payroll-foundation-card"><span>Rubricas ativas</span><strong>{{rubrics|length}}</strong></div>
 </div>
 
+
+<section class="panel payroll-start-panel">
+  <div class="section-heading"><div><span class="section-kicker">MOTOR V9.4</span><h2>Calcular uma competência</h2><p class="muted">Abra o mês, confira eventos e execute a memória de cálculo.</p></div></div>
+  <form method="post" action="{{url_for('rh.payroll_competence_open')}}" class="inline-form">
+    <label>Competência<input type="month" name="competence" value="{{current_competence}}" required></label>
+    <button type="submit">Abrir pré-folha</button>
+  </form>
+  {% if recent_competences %}<div class="payroll-recent-list">
+    {% for comp in recent_competences %}<a href="{{url_for('rh.payroll_competence_detail',competence_id=comp.id)}}"><strong>{{'%02d'|format(comp.month)}}/{{comp.year}}</strong><span class="badge {% if comp.status=='calculated' %}approved{% else %}pending{% endif %}">{{'Calculada' if comp.status=='calculated' else 'Aberta'}}</span></a>{% endfor %}
+  </div>{% endif %}
+</section>
+
 <div class="alert warning">
-  <strong>Etapa estrutural:</strong> esta versão prepara os dados da folha. O cálculo automático de salário, INSS, IRRF, horas extras, faltas e demais eventos será ativado no motor de cálculo da próxima etapa.
+  <strong>Etapa estrutural:</strong> o motor V9.4 já calcula salário-base, eventos classificados pelo RH, salário-família, INSS, IRRF e descontos configurados. Horas existentes no banco não viram pagamento automaticamente para evitar duplicidade.
 </div>
 
 <section class="panel">

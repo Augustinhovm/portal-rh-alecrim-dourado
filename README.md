@@ -274,3 +274,7 @@ Cria um fluxo completo para documentos funcionais em PDF: envio pelo RH, visuali
 
 ## V9.3 — Base da Pré-folha de Pagamento
 Cria a fundação do módulo de folha: configuração remuneratória por colaborador, dependentes, descontos fixos, rubricas e parâmetros legais versionados por vigência. Pré-carrega os parâmetros oficiais de 2026 para salário mínimo, INSS, IRRF e salário-família. Esta etapa ainda não executa o fechamento da folha; o motor automático de cálculo será implementado na próxima versão.
+
+
+## V9.4 — Motor de Cálculo da Pré-folha
+Calcula salário-base, rubricas variáveis confirmadas pelo RH, salário-família elegível, INSS progressivo 2026, IRRF 2026 com escolha entre desconto simplificado e deduções legais, redução da Lei 15.270/2025 e descontos fixos. Gera memória por rubrica e alertas. Horas extras/plantões já creditados no banco não são pagos automaticamente para evitar duplicidade. Faltas não são presumidas apenas por ausência de ponto.
