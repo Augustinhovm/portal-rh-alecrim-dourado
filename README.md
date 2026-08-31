@@ -278,3 +278,7 @@ Cria a fundação do módulo de folha: configuração remuneratória por colabor
 
 ## V9.4 — Motor de Cálculo da Pré-folha
 Calcula salário-base, rubricas variáveis confirmadas pelo RH, salário-família elegível, INSS progressivo 2026, IRRF 2026 com escolha entre desconto simplificado e deduções legais, redução da Lei 15.270/2025 e descontos fixos. Gera memória por rubrica e alertas. Horas extras/plantões já creditados no banco não são pagos automaticamente para evitar duplicidade. Faltas não são presumidas apenas por ausência de ponto.
+
+
+## V9.5 - Fechamento, PDF da folha e holerites personalizados
+Após o cálculo, o RH pode fechar a competência, gerar um PDF consolidado com nome completo e valores de todos os colaboradores calculados, conferir e autorizar a folha mediante senha do administrador. Na autorização, o Portal gera e disponibiliza automaticamente um holerite individual com identidade visual da Associação Alecrim Dourado, logo, proventos, descontos, bases, líquido e código de autorização. A competência fechada fica bloqueada para alterações; antes da autorização pode ser reaberta com justificativa.

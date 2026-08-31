@@ -443,6 +443,32 @@ class PayrollCalculationItem(db.Model):
     calculation = db.relationship("PayrollEmployeeCalculation", backref=db.backref("items", cascade="all, delete-orphan"))
 
 
+class PayrollClosure(db.Model):
+    """Fechamento e autorização formal da pré-folha sem alterar a tabela de competência existente."""
+    id = db.Column(db.Integer, primary_key=True)
+    competence_id = db.Column(db.Integer, db.ForeignKey("payroll_competence.id"), nullable=False, unique=True, index=True)
+    status = db.Column(db.String(20), nullable=False, default="closed")  # closed/authorized/reopened
+    closed_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    closed_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    close_note = db.Column(db.String(255))
+    authorized_at = db.Column(db.DateTime)
+    authorized_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+    authorization_ip = db.Column(db.String(64))
+    authorization_code = db.Column(db.String(64), unique=True)
+    authorization_note = db.Column(db.String(255))
+    reopened_at = db.Column(db.DateTime)
+    reopened_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+    reopen_reason = db.Column(db.String(255))
+
+    competence = db.relationship(
+        "PayrollCompetence",
+        backref=db.backref("closure", uselist=False, cascade="all, delete-orphan"),
+    )
+    closer = db.relationship("User", foreign_keys=[closed_by])
+    authorizer = db.relationship("User", foreign_keys=[authorized_by])
+    reopener = db.relationship("User", foreign_keys=[reopened_by])
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))

@@ -9,15 +9,15 @@ from sqlalchemy import func, and_, or_
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether, Image as RLImage, PageBreak
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, PayrollCompetence, PayrollManualEvent, PayrollEmployeeCalculation, PayrollCalculationItem, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, PayrollCompetence, PayrollManualEvent, PayrollEmployeeCalculation, PayrollCalculationItem, PayrollClosure, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
 
@@ -1848,6 +1848,154 @@ def payroll_legal_parameter_add():
 
 
 
+def _payroll_closure_is_locked(comp):
+    return bool(comp.closure and comp.closure.status in {"closed", "authorized"})
+
+
+def _fmt_brl(value):
+    number = Decimal(value or 0).quantize(Decimal("0.01"))
+    raw = f"{number:,.2f}"
+    return "R$ " + raw.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _payroll_logo_path():
+    path = os.path.join(current_app.root_path, "static", "img", "alecrim-dourado-logo.png")
+    return path if os.path.isfile(path) else None
+
+
+def _payroll_pdf_styles():
+    styles = getSampleStyleSheet()
+    gold = colors.HexColor("#C9A227")
+    charcoal = colors.HexColor("#2B2A28")
+    muted = colors.HexColor("#6B6B68")
+    styles.add(ParagraphStyle(name="PayrollTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=15, leading=18, textColor=charcoal, spaceAfter=4))
+    styles.add(ParagraphStyle(name="PayrollSub", parent=styles["BodyText"], fontSize=8.5, leading=11, textColor=muted))
+    styles.add(ParagraphStyle(name="PayrollSmall", parent=styles["BodyText"], fontSize=7.5, leading=9.5, textColor=charcoal))
+    styles.add(ParagraphStyle(name="PayrollSmallRight", parent=styles["PayrollSmall"], alignment=TA_RIGHT))
+    return styles, gold, charcoal, muted
+
+
+def _payroll_header_story(title, subtitle):
+    styles, gold, charcoal, muted = _payroll_pdf_styles()
+    logo = _payroll_logo_path()
+    left = []
+    if logo:
+        left.append(RLImage(logo, width=53*mm, height=8*mm))
+        left.append(Spacer(1, 3))
+    left.append(Paragraph("ASSOCIACAO ALECRIM DOURADO", styles["PayrollSmall"]))
+    right = [Paragraph(title, styles["PayrollTitle"]), Paragraph(subtitle, styles["PayrollSub"])]
+    header = Table([[left, right]], colWidths=[68*mm, 115*mm])
+    header.setStyle(TableStyle([
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ("ALIGN",(1,0),(1,0),"RIGHT"),
+        ("BOTTOMPADDING",(0,0),(-1,-1),7),
+        ("LINEBELOW",(0,0),(-1,-1),1.4,gold),
+    ]))
+    return [header, Spacer(1, 8)]
+
+
+def _payroll_consolidated_pdf(comp):
+    calculations=(PayrollEmployeeCalculation.query
+        .filter_by(competence_id=comp.id)
+        .join(Employee, Employee.id==PayrollEmployeeCalculation.employee_id)
+        .order_by(Employee.full_name.asc()).all())
+    if not calculations:
+        raise ValueError("A competência não possui cálculos para gerar a folha.")
+    styles,gold,charcoal,muted=_payroll_pdf_styles()
+    buff=BytesIO()
+    doc=SimpleDocTemplate(buff,pagesize=landscape(A4),rightMargin=10*mm,leftMargin=10*mm,topMargin=10*mm,bottomMargin=10*mm)
+    story=_payroll_header_story("FOLHA DE PAGAMENTO - RESUMO",f"Competência {comp.month:02d}/{comp.year} | Documento gerado pelo Portal RH")
+    closure=comp.closure
+    status="AUTORIZADA" if closure and closure.status=="authorized" else "FECHADA - AGUARDANDO AUTORIZACAO"
+    story.append(Paragraph(f"Status: <b>{status}</b> | Colaboradores com valores: <b>{len(calculations)}</b>",styles["PayrollSmall"]))
+    story.append(Spacer(1,7))
+    data=[["Colaborador","Cargo / Projeto","Salário-base","Proventos","INSS","IRRF","Descontos","Líquido"]]
+    tg=td=tn=Decimal('0')
+    for calc in calculations:
+        emp=calc.employee
+        tg+=Decimal(calc.gross_amount or 0); td+=Decimal(calc.deductions_amount or 0); tn+=Decimal(calc.net_amount or 0)
+        data.append([
+            Paragraph(emp.full_name,styles["PayrollSmall"]),
+            Paragraph(f"{emp.job_title}<br/><font color='#6B6B68'>{emp.project}</font>",styles["PayrollSmall"]),
+            _fmt_brl(calc.base_salary),_fmt_brl(calc.gross_amount),_fmt_brl(calc.inss_amount),_fmt_brl(calc.irrf_amount),_fmt_brl(calc.deductions_amount),_fmt_brl(calc.net_amount)
+        ])
+    data.append(["TOTAL","","",_fmt_brl(tg),"","",_fmt_brl(td),_fmt_brl(tn)])
+    table=Table(data,colWidths=[58*mm,53*mm,27*mm,27*mm,24*mm,24*mm,27*mm,28*mm],repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,0),charcoal),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
+        ("FONTSIZE",(0,0),(-1,-1),7.2),("GRID",(0,0),(-1,-2),.3,colors.HexColor('#D9DDD9')),("VALIGN",(0,0),(-1,-1),"TOP"),
+        ("ALIGN",(2,1),(-1,-1),"RIGHT"),("BACKGROUND",(0,-1),(-1,-1),colors.HexColor('#F5F0DF')),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),
+        ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)
+    ]))
+    story.append(table)
+    story.append(Spacer(1,8))
+    story.append(Paragraph("Este relatório consolida os valores calculados e registrados no Portal RH para a competência. A autorização interna não substitui obrigações legais acessórias, eSocial, DCTFWeb ou FGTS Digital.",styles["PayrollSub"]))
+    if closure:
+        story.append(Spacer(1,4))
+        story.append(Paragraph(f"Fechamento: {closure.closed_at.strftime('%d/%m/%Y %H:%M')} | Responsável: {closure.closer.email if closure.closer else 'RH'}" + (f" | Autorização: {closure.authorized_at.strftime('%d/%m/%Y %H:%M')} | Código: {closure.authorization_code}" if closure.authorized_at else ""),styles["PayrollSub"]))
+    doc.build(story); buff.seek(0); return buff
+
+
+def _payroll_employee_payslip_pdf(calc, closure):
+    comp=calc.competence; emp=calc.employee
+    styles,gold,charcoal,muted=_payroll_pdf_styles()
+    buff=BytesIO(); doc=SimpleDocTemplate(buff,pagesize=A4,rightMargin=14*mm,leftMargin=14*mm,topMargin=12*mm,bottomMargin=12*mm)
+    story=_payroll_header_story("HOLERITE / DEMONSTRATIVO DE PAGAMENTO",f"Competência {comp.month:02d}/{comp.year}")
+    info=Table([
+        ["Colaborador",emp.full_name,"CPF",emp.cpf],
+        ["Cargo",emp.job_title,"Projeto",emp.project],
+        ["Matrícula",emp.registration or "-","Admissão",emp.admission_date.strftime('%d/%m/%Y') if emp.admission_date else "-"],
+    ],colWidths=[26*mm,66*mm,23*mm,62*mm])
+    info.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor('#D9DDD9')),("BACKGROUND",(0,0),(0,-1),colors.HexColor('#F6F2E4')),("BACKGROUND",(2,0),(2,-1),colors.HexColor('#F6F2E4')),("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),("FONTNAME",(2,0),(2,-1),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
+    story.extend([info,Spacer(1,9)])
+    items=PayrollCalculationItem.query.filter_by(calculation_id=calc.id).order_by(PayrollCalculationItem.sort_order,PayrollCalculationItem.id).all()
+    data=[["Cód.","Descrição","Referência","Proventos","Descontos"]]
+    for item in items:
+        earning=_fmt_brl(item.amount) if item.nature=='earning' else ''
+        deduction=_fmt_brl(item.amount) if item.nature=='deduction' else ''
+        data.append([item.rubric_code,Paragraph(item.description,styles['PayrollSmall']),item.reference or '-',earning,deduction])
+    data.append(["","TOTAIS","",_fmt_brl(calc.gross_amount),_fmt_brl(calc.deductions_amount)])
+    tab=Table(data,colWidths=[18*mm,69*mm,40*mm,25*mm,25*mm],repeatRows=1)
+    tab.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),charcoal),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("GRID",(0,0),(-1,-2),.3,colors.HexColor('#D9DDD9')),("FONTSIZE",(0,0),(-1,-1),7.7),("ALIGN",(3,1),(-1,-1),"RIGHT"),("BACKGROUND",(0,-1),(-1,-1),colors.HexColor('#F5F0DF')),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
+    story.extend([tab,Spacer(1,10)])
+    summary=Table([
+        ["Salário-base",_fmt_brl(calc.base_salary),"Base INSS",_fmt_brl(calc.inss_base)],
+        ["INSS",_fmt_brl(calc.inss_amount),"Base IRRF",_fmt_brl(calc.irrf_base)],
+        ["IRRF",_fmt_brl(calc.irrf_amount),"Líquido a receber",_fmt_brl(calc.net_amount)],
+    ],colWidths=[31*mm,45*mm,31*mm,70*mm])
+    summary.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.35,colors.HexColor('#D9DDD9')),("BACKGROUND",(0,0),(0,-1),colors.HexColor('#F7F7F5')),("BACKGROUND",(2,0),(2,-1),colors.HexColor('#F7F7F5')),("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),("FONTNAME",(2,0),(2,-1),"Helvetica-Bold"),("FONTNAME",(3,2),(3,2),"Helvetica-Bold"),("TEXTCOLOR",(3,2),(3,2),charcoal),("ALIGN",(1,0),(1,-1),"RIGHT"),("ALIGN",(3,0),(3,-1),"RIGHT"),("FONTSIZE",(0,0),(-1,-1),8),("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
+    story.extend([summary,Spacer(1,12)])
+    story.append(Paragraph(f"Folha autorizada internamente pelo RH em {closure.authorized_at.strftime('%d/%m/%Y %H:%M')}. Código de autorização: <b>{closure.authorization_code}</b>.",styles['PayrollSmall']))
+    story.append(Spacer(1,4))
+    story.append(Paragraph("Documento disponibilizado de forma individual e confidencial no Portal RH. O cálculo deve permanecer conciliado com as obrigações oficiais da entidade.",styles['PayrollSub']))
+    doc.build(story); buff.seek(0); return buff
+
+
+def _save_generated_payslip(calc, closure):
+    emp=calc.employee; comp=calc.competence
+    pdf=_payroll_employee_payslip_pdf(calc,closure)
+    stored=f"holerite_portal_{comp.year}_{comp.month:02d}_{emp.id}_{uuid.uuid4().hex}.pdf"
+    path=os.path.join(current_app.config['UPLOAD_FOLDER'],stored)
+    os.makedirs(current_app.config['UPLOAD_FOLDER'],exist_ok=True)
+    with open(path,'wb') as handle: handle.write(pdf.getvalue())
+    _chmod_private(path)
+    original=f"Holerite_{comp.month:02d}-{comp.year}_{secure_filename(emp.full_name) or emp.id}.pdf"
+    existing=Payslip.query.filter_by(employee_id=emp.id,year=comp.year,month=comp.month).first()
+    old=None
+    if existing:
+        old=existing.stored_name; existing.original_name=original; existing.stored_name=stored; existing.matched_by='portal_payroll'; existing.uploaded_at=now_local(); existing.uploaded_by=current_user.id; existing.employee_viewed_at=None; item=existing
+    else:
+        item=Payslip(employee_id=emp.id,year=comp.year,month=comp.month,original_name=original,stored_name=stored,matched_by='portal_payroll',uploaded_by=current_user.id)
+        db.session.add(item)
+    db.session.flush()
+    if old and old!=stored:
+        try:
+            old_path=os.path.join(current_app.config['UPLOAD_FOLDER'],old)
+            if os.path.isfile(old_path): os.remove(old_path)
+        except OSError: pass
+    return item
+
+
 @bp.route("/payroll/competence", methods=["POST"])
 @login_required
 @roles_required(ROLE_ADMIN)
@@ -1884,7 +2032,7 @@ def payroll_competence_detail(competence_id):
         "net":sum(Decimal(c.net_amount or 0) for c in calculations.values()),
     }
     return render_template("payroll_competence.html",comp=comp,employees=employees,calculations=calculations,
-        warnings=warnings,rubrics=rubrics,events_by_employee=events_by_employee,totals=totals)
+        warnings=warnings,rubrics=rubrics,events_by_employee=events_by_employee,totals=totals,closure=comp.closure)
 
 
 @bp.route("/payroll/competence/<int:competence_id>/events",methods=["POST"])
@@ -1892,6 +2040,9 @@ def payroll_competence_detail(competence_id):
 @roles_required(ROLE_ADMIN)
 def payroll_event_add(competence_id):
     comp=db.get_or_404(PayrollCompetence,competence_id)
+    if _payroll_closure_is_locked(comp):
+        flash("A competência está fechada. Reabra antes de alterar eventos.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
     emp=db.get_or_404(Employee,request.form.get("employee_id",type=int))
     rub=db.get_or_404(PayrollRubric,request.form.get("rubric_id",type=int))
     qty_raw=(request.form.get("reference_quantity") or "").strip().replace(",",".")
@@ -1920,7 +2071,10 @@ def payroll_event_add(competence_id):
 @login_required
 @roles_required(ROLE_ADMIN)
 def payroll_event_delete(event_id):
-    ev=db.get_or_404(PayrollManualEvent,event_id); cid=ev.competence_id; eid=ev.employee_id
+    ev=db.get_or_404(PayrollManualEvent,event_id)
+    if _payroll_closure_is_locked(ev.competence):
+        flash("A competência está fechada. Reabra antes de remover eventos.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=ev.competence_id)); cid=ev.competence_id; eid=ev.employee_id
     log_action("removeu evento da pré-folha","payroll_event",ev.id,f"{ev.employee.full_name}; {ev.rubric.code}")
     ev.competence.status="open"; db.session.delete(ev); db.session.commit()
     flash("Evento removido. Recalcule a competência.","success")
@@ -1933,6 +2087,9 @@ def payroll_event_delete(event_id):
 def payroll_competence_calculate(competence_id):
     _ensure_payroll_2026_parameters(); _ensure_default_payroll_rubrics()
     comp=db.get_or_404(PayrollCompetence,competence_id)
+    if _payroll_closure_is_locked(comp):
+        flash("A competência está fechada. Reabra antes de recalcular.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
     employees=Employee.query.filter_by(is_active=True).order_by(Employee.full_name.asc()).all()
     calculated=0; skipped=[]
     try:
@@ -1949,6 +2106,105 @@ def payroll_competence_calculate(competence_id):
     msg=f"Pré-folha calculada para {calculated} colaborador(es)."
     if skipped: msg+=f" {len(skipped)} sem salário configurado foram ignorados."
     flash(msg,"success")
+    return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
+
+@bp.route("/payroll/competence/<int:competence_id>/close",methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_competence_close(competence_id):
+    comp=db.get_or_404(PayrollCompetence,competence_id)
+    if comp.status!="calculated":
+        flash("Calcule a competência antes de fechá-la.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    calculations=PayrollEmployeeCalculation.query.filter_by(competence_id=comp.id).all()
+    if not calculations:
+        flash("Não há valores calculados nesta competência.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    # Todos os colaboradores ativos com salário configurado devem possuir cálculo antes do fechamento.
+    configured=(Employee.query.join(PayrollEmployeeConfig).filter(Employee.is_active==True,PayrollEmployeeConfig.monthly_salary>0).all())
+    missing=[emp.full_name for emp in configured if not any(c.employee_id==emp.id for c in calculations)]
+    if missing:
+        flash(f"Não foi possível fechar: {len(missing)} colaborador(es) com remuneração configurada estão sem cálculo.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    closure=comp.closure
+    if closure and closure.status=="authorized":
+        flash("Esta folha já foi autorizada e não pode ser fechada novamente.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    if not closure:
+        closure=PayrollClosure(competence_id=comp.id,closed_by=current_user.id)
+        db.session.add(closure)
+    closure.status="closed"; closure.closed_at=now_local(); closure.closed_by=current_user.id
+    closure.close_note=(request.form.get("note") or "").strip() or None
+    closure.reopened_at=None; closure.reopened_by=None; closure.reopen_reason=None
+    log_action("fechou pré-folha de pagamento","payroll_closure",comp.id,f"{comp.month:02d}/{comp.year}; {len(calculations)} colaboradores")
+    log_security_event("payroll_closed",severity="info",user=current_user,details=f"Pré-folha {comp.month:02d}/{comp.year} fechada para autorização.")
+    db.session.commit()
+    flash("Competência fechada. O PDF consolidado está disponível para conferência e a folha aguarda autorização.","success")
+    return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
+
+@bp.route("/payroll/competence/<int:competence_id>/sheet.pdf")
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_competence_sheet_pdf(competence_id):
+    comp=db.get_or_404(PayrollCompetence,competence_id)
+    if not comp.closure or comp.closure.status not in {"closed","authorized"}:
+        flash("Feche a competência antes de gerar a folha consolidada.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    try: buff=_payroll_consolidated_pdf(comp)
+    except ValueError as exc:
+        flash(str(exc),"danger"); return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    log_action("gerou PDF consolidado da folha","payroll_competence",comp.id,f"{comp.month:02d}/{comp.year}")
+    db.session.commit()
+    return send_file(buff,mimetype="application/pdf",as_attachment=True,download_name=f"Folha_Pagamento_{comp.month:02d}-{comp.year}.pdf")
+
+
+@bp.route("/payroll/competence/<int:competence_id>/authorize",methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_competence_authorize(competence_id):
+    comp=db.get_or_404(PayrollCompetence,competence_id); closure=comp.closure
+    if not closure or closure.status!="closed":
+        flash("A competência precisa estar fechada antes da autorização.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    if request.form.get("confirm_authorization")!="1":
+        flash("Confirme a autorização da folha.","danger"); return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    password=request.form.get("password") or ""
+    if not current_user.check_password(password):
+        log_security_event("payroll_authorization_failed",severity="warning",user=current_user,details=f"Senha inválida ao tentar autorizar a folha {comp.month:02d}/{comp.year}.")
+        db.session.commit(); flash("Senha do administrador inválida.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    calculations=PayrollEmployeeCalculation.query.filter_by(competence_id=comp.id).all()
+    stamp=now_local(); raw=f"payroll|{comp.id}|{current_user.id}|{stamp.isoformat()}|{uuid.uuid4().hex}"
+    closure.status="authorized"; closure.authorized_at=stamp; closure.authorized_by=current_user.id
+    closure.authorization_ip=client_ip(); closure.authorization_code=hashlib.sha256(raw.encode('utf-8')).hexdigest()[:32].upper()
+    closure.authorization_note=(request.form.get("note") or "").strip() or None
+    generated=0
+    for calc in calculations:
+        if Decimal(calc.net_amount or 0)!=0 or Decimal(calc.gross_amount or 0)!=0:
+            _save_generated_payslip(calc,closure); generated+=1
+    log_action("autorizou folha de pagamento","payroll_closure",comp.id,f"{comp.month:02d}/{comp.year}; código {closure.authorization_code}; {generated} holerites liberados")
+    log_security_event("payroll_authorized",severity="info",user=current_user,details=f"Folha {comp.month:02d}/{comp.year} autorizada; {generated} holerites disponibilizados.")
+    db.session.commit()
+    flash(f"Folha autorizada. {generated} holerite(s) personalizados foram gerados e disponibilizados aos colaboradores.","success")
+    return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
+
+@bp.route("/payroll/competence/<int:competence_id>/reopen",methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_competence_reopen(competence_id):
+    comp=db.get_or_404(PayrollCompetence,competence_id); closure=comp.closure
+    if not closure or closure.status!="closed":
+        flash("Somente uma competência fechada e ainda não autorizada pode ser reaberta.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    reason=(request.form.get("reason") or "").strip()
+    if len(reason)<5:
+        flash("Informe o motivo da reabertura.","danger"); return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+    closure.status="reopened"; closure.reopened_at=now_local(); closure.reopened_by=current_user.id; closure.reopen_reason=reason
+    log_action("reabriu pré-folha","payroll_closure",comp.id,f"{comp.month:02d}/{comp.year}; {reason}")
+    db.session.commit(); flash("Competência reaberta. Recalcule e feche novamente após os ajustes.","success")
     return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
 
 

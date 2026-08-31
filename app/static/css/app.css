@@ -3981,3 +3981,17 @@ code {
 /* V9.4 - Motor de cálculo da pré-folha */
 .payroll-start-panel{border-top:3px solid #c99b28}.payroll-recent-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.payroll-recent-list a{display:flex;gap:8px;align-items:center;padding:9px 11px;border:1px solid #e3e8e6;border-radius:10px;background:#fff}.payroll-heading{align-items:flex-end}.payroll-employee-run{scroll-margin-top:90px}.payroll-employee-values{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin:12px 0}.payroll-employee-values>div{padding:11px;border:1px solid #e7ebe9;border-radius:11px;background:#fafcfb;min-width:0}.payroll-employee-values span,.payroll-employee-values strong{display:block}.payroll-employee-values span{font-size:.7rem;color:#667085;font-weight:800}.payroll-employee-values strong{margin-top:4px;font-size:.88rem;overflow-wrap:anywhere}.payroll-warning-list{display:grid;gap:6px;margin:10px 0}.payroll-warning-list>div{padding:9px 11px;background:#fff8e6;border:1px solid #f0ddb0;border-radius:9px;font-size:.78rem}.payroll-event-help{font-size:.76rem;color:#667085;padding:9px;background:#f7faf8;border-radius:9px}.payroll-memory-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.payroll-total-grid{margin-top:6px}
 @media(max-width:980px){.payroll-employee-values{grid-template-columns:repeat(2,minmax(0,1fr))}.payroll-memory-grid{grid-template-columns:1fr}}@media(max-width:540px){.payroll-employee-values{grid-template-columns:1fr}}
+
+
+/* =========================================================
+   V9.5 - Fechamento, autorização e holerites da folha
+   ========================================================= */
+.payroll-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.payroll-heading-actions form{margin:0}
+.payroll-close-panel{border-left:4px solid #c9a227}
+.payroll-authorization-panel{border-left:4px solid #b77d13;background:linear-gradient(180deg,#fffdf8,#fff)}
+.payroll-authorized-panel{border-left:4px solid #3f7b52;background:linear-gradient(180deg,#fbfffc,#fff)}
+.payroll-authorize-form{max-width:900px}
+.payroll-reopen{margin-top:14px}
+.payroll-authorization-record{padding:12px 14px;border-radius:12px;background:#f4f7f5;border:1px solid #dfe7e2;font-size:.82rem;overflow-wrap:anywhere}
+@media(max-width:760px){.payroll-heading-actions{justify-content:flex-start;width:100%}.payroll-heading-actions>*{width:100%}.payroll-heading-actions .btn,.payroll-heading-actions button{width:100%;text-align:center}}

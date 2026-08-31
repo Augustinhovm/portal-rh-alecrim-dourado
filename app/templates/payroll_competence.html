@@ -1,15 +1,42 @@
 {% extends 'base.html' %}
 {% block title %}Pré-folha {{'%02d'|format(comp.month)}}/{{comp.year}} · Portal RH{% endblock %}
 {% block content %}
-<div class="heading payroll-heading"><div><span class="executive-kicker">MOTOR DE CÁLCULO</span><h1>Pré-folha · {{'%02d'|format(comp.month)}}/{{comp.year}}</h1><p class="muted">Cálculo preliminar com memória por rubrica. Não substitui o fechamento oficial/eSocial.</p></div>
-<form method="post" action="{{url_for('rh.payroll_competence_calculate',competence_id=comp.id)}}"><button type="submit">Calcular / Recalcular competência</button></form></div>
+<div class="heading payroll-heading"><div><span class="executive-kicker">MOTOR DE CÁLCULO</span><h1>Pré-folha · {{'%02d'|format(comp.month)}}/{{comp.year}}</h1><p class="muted">Cálculo, fechamento, autorização e distribuição individual dos holerites.</p></div>
+<div class="payroll-heading-actions">
+{% if not closure or closure.status=='reopened' %}<form method="post" action="{{url_for('rh.payroll_competence_calculate',competence_id=comp.id)}}"><button type="submit">Calcular / Recalcular</button></form>{% endif %}
+{% if closure and closure.status in ['closed','authorized'] %}<a class="btn secondary" href="{{url_for('rh.payroll_competence_sheet_pdf',competence_id=comp.id)}}">Baixar folha em PDF</a>{% endif %}
+</div></div>
 
 <div class="payroll-foundation-grid payroll-total-grid">
-<div class="payroll-foundation-card"><span>Status</span><strong>{{'Calculada' if comp.status=='calculated' else 'Aberta'}}</strong></div>
+<div class="payroll-foundation-card"><span>Status</span><strong>{% if closure and closure.status=='authorized' %}Autorizada{% elif closure and closure.status=='closed' %}Fechada{% elif closure and closure.status=='reopened' %}Reaberta{% elif comp.status=='calculated' %}Calculada{% else %}Aberta{% endif %}</strong></div>
 <div class="payroll-foundation-card"><span>Bruto calculado</span><strong>R$ {{'%.2f'|format(totals.gross|float)}}</strong></div>
 <div class="payroll-foundation-card"><span>Descontos</span><strong>R$ {{'%.2f'|format(totals.deductions|float)}}</strong></div>
 <div class="payroll-foundation-card"><span>Líquido estimado</span><strong>R$ {{'%.2f'|format(totals.net|float)}}</strong></div>
 </div>
+
+
+{% if comp.status=='calculated' and (not closure or closure.status=='reopened') %}
+<section class="panel payroll-close-panel">
+  <div class="section-heading"><div><span class="section-kicker">ETAPA 1</span><h2>Fechar competência</h2><p class="muted">O fechamento congela temporariamente os lançamentos e libera o PDF consolidado para conferência.</p></div></div>
+  <form method="post" action="{{url_for('rh.payroll_competence_close',competence_id=comp.id)}}" class="inline-form"><input name="note" placeholder="Observação de fechamento (opcional)"><button type="submit">Fechar competência e gerar folha</button></form>
+</section>
+{% elif closure and closure.status=='closed' %}
+<section class="panel payroll-authorization-panel">
+  <div class="section-heading"><div><span class="section-kicker">ETAPA 2</span><h2>Autorizar folha e liberar holerites</h2><p class="muted">Confira primeiro o PDF consolidado. A autorização exige sua senha e gera um holerite individual personalizado para cada colaborador com valor calculado.</p></div><a class="btn secondary" href="{{url_for('rh.payroll_competence_sheet_pdf',competence_id=comp.id)}}">Conferir PDF da folha</a></div>
+  <form method="post" action="{{url_for('rh.payroll_competence_authorize',competence_id=comp.id)}}" class="form-grid compact-form payroll-authorize-form">
+    <label class="signature-checkbox full"><input type="checkbox" name="confirm_authorization" value="1" required><span>Confirmo que conferi os valores desta competência e autorizo a liberação dos holerites aos colaboradores.</span></label>
+    <label>Senha do administrador<input type="password" name="password" required autocomplete="current-password"></label>
+    <label>Observação<input name="note" placeholder="Opcional"></label>
+    <div class="full"><button type="submit">Autorizar folha e enviar holerites</button></div>
+  </form>
+  <details class="admin-tool payroll-reopen"><summary>Preciso corrigir a folha antes de autorizar</summary><form method="post" action="{{url_for('rh.payroll_competence_reopen',competence_id=comp.id)}}" class="inline-form"><input name="reason" required minlength="5" placeholder="Motivo obrigatório da reabertura"><button class="secondary" type="submit">Reabrir competência</button></form></details>
+</section>
+{% elif closure and closure.status=='authorized' %}
+<section class="panel payroll-authorized-panel">
+  <div class="section-heading"><div><span class="section-kicker">FOLHA AUTORIZADA</span><h2>Holerites disponibilizados</h2><p class="muted">Os demonstrativos individuais desta competência já estão disponíveis em “Meus holerites” para cada colaborador.</p></div><a class="btn secondary" href="{{url_for('rh.payroll_competence_sheet_pdf',competence_id=comp.id)}}">Baixar folha autorizada</a></div>
+  <div class="payroll-authorization-record"><strong>Código:</strong> {{closure.authorization_code}} · <strong>Autorizada em:</strong> {{closure.authorized_at.strftime('%d/%m/%Y %H:%M')}} · <strong>Responsável:</strong> {{closure.authorizer.email if closure.authorizer else 'RH'}}</div>
+</section>
+{% endif %}
 
 <div class="alert warning"><strong>Critério de segurança:</strong> horas extras e plantões que já foram lançados no banco de horas não são convertidos automaticamente em dinheiro. Para pagar uma verba variável, o RH deve classificá-la abaixo. Faltas também não são presumidas apenas por ausência de ponto.</div>
 
@@ -28,9 +55,9 @@
   </div>
 
   {% if events_by_employee.get(emp.id) %}<div class="table-wrap"><table><tr><th>Evento variável</th><th>Referência</th><th>Valor informado</th><th>Ação</th></tr>
-  {% for ev in events_by_employee.get(emp.id) %}<tr><td>{{ev.rubric.code}} · {{ev.rubric.description}}</td><td>{{ev.reference_quantity or ev.reference_label or '—'}}</td><td>{% if ev.amount is not none %}R$ {{'%.2f'|format(ev.amount|float)}}{% else %}Automático ao calcular{% endif %}</td><td><form method="post" action="{{url_for('rh.payroll_event_delete',event_id=ev.id)}}"><button class="secondary" type="submit">Remover</button></form></td></tr>{% endfor %}</table></div>{% endif %}
+  {% for ev in events_by_employee.get(emp.id) %}<tr><td>{{ev.rubric.code}} · {{ev.rubric.description}}</td><td>{{ev.reference_quantity or ev.reference_label or '—'}}</td><td>{% if ev.amount is not none %}R$ {{'%.2f'|format(ev.amount|float)}}{% else %}Automático ao calcular{% endif %}</td><td>{% if not closure or closure.status=='reopened' %}<form method="post" action="{{url_for('rh.payroll_event_delete',event_id=ev.id)}}"><button class="secondary" type="submit">Remover</button></form>{% else %}<span class="badge">Bloqueado</span>{% endif %}</td></tr>{% endfor %}</table></div>{% endif %}
 
-  <details class="admin-tool"><summary>Adicionar verba / desconto desta competência</summary>
+  {% if not closure or closure.status=='reopened' %}<details class="admin-tool"><summary>Adicionar verba / desconto desta competência</summary>
   <form method="post" action="{{url_for('rh.payroll_event_add',competence_id=comp.id)}}" class="form-grid compact-form">
     <input type="hidden" name="employee_id" value="{{emp.id}}">
     <label>Rubrica<select name="rubric_id" required>{% for rub in rubrics %}<option value="{{rub.id}}">{{rub.code}} · {{rub.description}}</option>{% endfor %}</select></label>
@@ -40,7 +67,7 @@
     <label class="full">Observação<input name="notes" placeholder="Motivo e documento de suporte"></label>
     <div class="full payroll-event-help">HE50/HE65/HE100: se o valor ficar vazio, o Portal calcula pela hora normal usando divisor = jornada semanal × 5. FALTA: quantidade representa dias e usa salário/30. Adicionais como insalubridade, periculosidade e noturno exigem valor informado pelo RH nesta etapa.</div>
     <div class="full"><button type="submit">Adicionar evento</button></div>
-  </form></details>
+  </form></details>{% endif %}
 </section>
 {% endfor %}
 {% endblock %}
