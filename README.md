@@ -270,3 +270,7 @@ O nome e a função do colaborador passam a ficar centralizados abaixo da foto d
 
 ## V9.2 — Assinatura eletrônica geral de documentos
 Cria um fluxo completo para documentos funcionais em PDF: envio pelo RH, visualização obrigatória pelo colaborador, confirmação de ciência, assinatura com PIN pessoal de ponto, registro de data/hora/IP/código, validação final pelo RH e comprovante PDF com hash SHA-256 da versão assinada. A Central de Pendências e as Notificações passam a acompanhar esses documentos. O aceite é eletrônico interno do Portal e não equivale a certificado digital ICP-Brasil.
+
+
+## V9.3 — Base da Pré-folha de Pagamento
+Cria a fundação do módulo de folha: configuração remuneratória por colaborador, dependentes, descontos fixos, rubricas e parâmetros legais versionados por vigência. Pré-carrega os parâmetros oficiais de 2026 para salário mínimo, INSS, IRRF e salário-família. Esta etapa ainda não executa o fechamento da folha; o motor automático de cálculo será implementado na próxima versão.

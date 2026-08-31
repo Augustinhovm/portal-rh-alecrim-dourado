@@ -3907,3 +3907,73 @@ code {
     width:100%;
   }
 }
+
+
+/* =========================================================
+   V9.3 - Fundação da Pré-folha de Pagamento
+   ========================================================= */
+.payroll-foundation-grid,
+.payroll-config-summary {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin-bottom:18px;
+}
+.payroll-foundation-card,
+.payroll-config-summary > div {
+  min-width:0;
+  padding:15px;
+  border:1px solid #e3e8e6;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 4px 14px rgba(25,31,36,.035);
+}
+.payroll-foundation-card span,
+.payroll-foundation-card strong,
+.payroll-config-summary span,
+.payroll-config-summary strong {
+  display:block;
+}
+.payroll-foundation-card span,
+.payroll-config-summary span {
+  color:#667085;
+  font-size:.75rem;
+  font-weight:800;
+}
+.payroll-foundation-card strong {
+  margin-top:6px;
+  font-size:1.55rem;
+}
+.payroll-config-summary strong {
+  margin-top:5px;
+  font-size:.95rem;
+  overflow-wrap:anywhere;
+}
+.payroll-employee-panel {
+  border-top:3px solid #c99b28;
+}
+.payroll-dependent-heading {
+  margin-top:20px;
+}
+.table-subline {
+  display:block;
+  margin-top:3px;
+  color:#667085;
+  font-size:.72rem;
+}
+.payroll-parameters-table td:first-child {
+  min-width:230px;
+}
+
+@media (max-width:900px) {
+  .payroll-foundation-grid,
+  .payroll-config-summary {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+@media (max-width:560px) {
+  .payroll-foundation-grid,
+  .payroll-config-summary {
+    grid-template-columns:1fr;
+  }
+}

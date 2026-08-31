@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Pré-folha de Pagamento · Portal RH{% endblock %}
+{% block content %}
+<div class="heading">
+  <div>
+    <span class="executive-kicker">BASE DA FOLHA</span>
+    <h1>Pré-folha de Pagamento</h1>
+    <p class="muted">Configuração remuneratória, dependentes, rubricas e parâmetros legais versionados.</p>
+  </div>
+</div>
+
+<div class="payroll-foundation-grid">
+  <div class="payroll-foundation-card"><span>Colaboradores ativos</span><strong>{{active}}</strong></div>
+  <div class="payroll-foundation-card"><span>Salários configurados</span><strong>{{configured}}</strong></div>
+  <div class="payroll-foundation-card"><span>Dependentes ativos</span><strong>{{dependents}}</strong></div>
+  <div class="payroll-foundation-card"><span>Rubricas ativas</span><strong>{{rubrics|length}}</strong></div>
+</div>
+
+<div class="alert warning">
+  <strong>Etapa estrutural:</strong> esta versão prepara os dados da folha. O cálculo automático de salário, INSS, IRRF, horas extras, faltas e demais eventos será ativado no motor de cálculo da próxima etapa.
+</div>
+
+<section class="panel">
+  <div class="section-heading">
+    <div><h2>Colaboradores e salário-base</h2><p class="muted">Abra a Ficha 360° para configurar a remuneração e os dependentes.</p></div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Colaborador</th><th>Cargo</th><th>Projeto</th><th>Salário-base</th><th>Vigência</th><th>Dependentes</th><th>Ação</th></tr>
+      {% for emp in employees %}
+      <tr>
+        <td><strong>{{emp.full_name}}</strong>{% if not emp.is_active %}<small class="table-subline">Inativo</small>{% endif %}</td>
+        <td>{{emp.job_title}}</td>
+        <td>{{emp.project}}</td>
+        <td>{% if emp.payroll_config %}R$ {{'%.2f'|format(emp.payroll_config.monthly_salary|float)}}{% else %}<span class="badge pending">Não configurado</span>{% endif %}</td>
+        <td>{{emp.payroll_config.salary_effective_date.strftime('%d/%m/%Y') if emp.payroll_config else '—'}}</td>
+        <td>{{emp.payroll_dependents|selectattr('active','equalto',true)|list|length}}</td>
+        <td><a class="btn secondary" href="{{url_for('rh.employee_detail',employee_id=emp.id)}}#folha">Configurar</a></td>
+      </tr>
+      {% else %}<tr><td colspan="7">Nenhum colaborador cadastrado.</td></tr>{% endfor %}
+    </table>
+  </div>
+</section>
+
+<section class="panel" id="rubricas">
+  <div class="section-heading">
+    <div><h2>Rubricas da folha</h2><p class="muted">As incidências abaixo serão utilizadas pelo futuro motor de cálculo. A natureza eSocial deve ser validada antes de uma futura integração oficial.</p></div>
+  </div>
+
+  <details class="admin-tool">
+    <summary>Cadastrar rubrica personalizada</summary>
+    <form method="post" action="{{url_for('rh.payroll_rubric_add')}}" class="form-grid compact-form">
+      <label>Código<input name="code" required placeholder="Ex.: GRAT"></label>
+      <label>Descrição<input name="description" required placeholder="Ex.: Gratificação"></label>
+      <label>Natureza
+        <select name="nature"><option value="earning">Provento</option><option value="deduction">Desconto</option></select>
+      </label>
+      <label>Natureza eSocial<input name="esocial_nature" placeholder="Preencher após validação"></label>
+      <label>Percentual padrão<input name="default_percentage" inputmode="decimal" placeholder="Opcional"></label>
+      <label class="signature-checkbox"><input type="checkbox" name="inss_incidence" value="1"><span>Incide INSS</span></label>
+      <label class="signature-checkbox"><input type="checkbox" name="fgts_incidence" value="1"><span>Incide FGTS</span></label>
+      <label class="signature-checkbox"><input type="checkbox" name="irrf_incidence" value="1"><span>Incide IRRF</span></label>
+      <label class="full">Observações<textarea name="notes"></textarea></label>
+      <div class="full"><button type="submit">Cadastrar rubrica</button></div>
+    </form>
+  </details>
+
+  <div class="table-wrap">
+    <table>
+      <tr><th>Código</th><th>Descrição</th><th>Natureza</th><th>Percentual</th><th>INSS</th><th>FGTS</th><th>IRRF</th><th>eSocial</th></tr>
+      {% for item in rubrics %}
+      <tr>
+        <td><strong>{{item.code}}</strong></td><td>{{item.description}}</td>
+        <td>{{'Provento' if item.nature=='earning' else 'Desconto'}}</td>
+        <td>{{item.default_percentage if item.default_percentage is not none else '—'}}</td>
+        <td>{{'Sim' if item.inss_incidence else 'Não'}}</td>
+        <td>{{'Sim' if item.fgts_incidence else 'Não'}}</td>
+        <td>{{'Sim' if item.irrf_incidence else 'Não'}}</td>
+        <td>{{item.esocial_nature or 'A validar'}}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</section>
+
+<section class="panel" id="parametros">
+  <div class="section-heading">
+    <div><h2>Parâmetros legais versionados</h2><p class="muted">Valores preservados por data de vigência para permitir cálculos históricos corretos.</p></div>
+  </div>
+
+  <details class="admin-tool">
+    <summary>Adicionar nova vigência de parâmetro</summary>
+    <form method="post" action="{{url_for('rh.payroll_legal_parameter_add')}}" class="form-grid compact-form">
+      <label>Código<input name="code" required placeholder="Ex.: minimum_wage"></label>
+      <label>Descrição<input name="description" required></label>
+      <label>Valor<input name="value" required inputmode="decimal"></label>
+      <label>Tipo
+        <select name="value_type"><option value="money">Valor monetário</option><option value="percent">Percentual</option><option value="factor">Fator</option></select>
+      </label>
+      <label>Início da vigência<input type="date" name="effective_from" required></label>
+      <label>Fim da vigência<input type="date" name="effective_to"></label>
+      <label class="full">Referência legal<input name="legal_reference"></label>
+      <label class="full">Fonte oficial<input name="source_url" placeholder="URL oficial"></label>
+      <label class="full">Observações<textarea name="notes"></textarea></label>
+      <div class="full"><button type="submit">Cadastrar nova vigência</button></div>
+    </form>
+  </details>
+
+  <div class="table-wrap">
+    <table class="payroll-parameters-table">
+      <tr><th>Parâmetro</th><th>Valor</th><th>Tipo</th><th>Vigência</th><th>Referência</th></tr>
+      {% for item in parameters %}
+      <tr>
+        <td><strong>{{item.description}}</strong><small class="table-subline">{{item.code}}</small></td>
+        <td>{{item.value}}</td>
+        <td>{{item.value_type}}</td>
+        <td>{{item.effective_from.strftime('%d/%m/%Y')}}{% if item.effective_to %} a {{item.effective_to.strftime('%d/%m/%Y')}}{% else %} em diante{% endif %}</td>
+        <td>{{item.legal_reference or '—'}}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</section>
+{% endblock %}

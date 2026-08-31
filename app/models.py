@@ -274,6 +274,92 @@ class DocumentSignatureFlow(db.Model):
             return "viewed"
         return "pending"
 
+
+class PayrollEmployeeConfig(db.Model):
+    """Configuração remuneratória do colaborador sem alterar a tabela Employee existente."""
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(
+        db.Integer, db.ForeignKey("employee.id"), nullable=False, unique=True, index=True
+    )
+    monthly_salary = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    salary_effective_date = db.Column(db.Date, nullable=False, default=today_local)
+    salary_type = db.Column(db.String(30), nullable=False, default="monthly")
+    has_transport_voucher = db.Column(db.Boolean, default=False, nullable=False)
+    transport_discount_percent = db.Column(db.Numeric(5, 2), default=0)
+    food_discount_value = db.Column(db.Numeric(12, 2), default=0)
+    health_plan_discount_value = db.Column(db.Numeric(12, 2), default=0)
+    pension_discount_value = db.Column(db.Numeric(12, 2), default=0)
+    other_fixed_discount_value = db.Column(db.Numeric(12, 2), default=0)
+    other_fixed_discount_description = db.Column(db.String(180))
+    notes = db.Column(db.Text)
+    updated_at = db.Column(db.DateTime, default=now_local, onupdate=now_local, nullable=False)
+    updated_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    employee = db.relationship(
+        "Employee",
+        backref=db.backref("payroll_config", uselist=False, cascade="all, delete-orphan"),
+    )
+    updater = db.relationship("User", foreign_keys=[updated_by])
+
+
+class PayrollDependent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employee.id"), nullable=False, index=True)
+    full_name = db.Column(db.String(180), nullable=False)
+    cpf = db.Column(db.String(14))
+    birth_date = db.Column(db.Date)
+    relationship = db.Column(db.String(60))
+    irrf_dependent = db.Column(db.Boolean, default=False, nullable=False)
+    salary_family_eligible = db.Column(db.Boolean, default=False, nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    notes = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    employee = db.relationship(
+        "Employee",
+        backref=db.backref("payroll_dependents", cascade="all, delete-orphan"),
+    )
+    creator = db.relationship("User", foreign_keys=[created_by])
+
+
+class PayrollLegalParameter(db.Model):
+    """Parâmetro legal versionado por vigência para preservar cálculos históricos."""
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(80), nullable=False, index=True)
+    description = db.Column(db.String(180), nullable=False)
+    value = db.Column(db.Numeric(14, 6), nullable=False)
+    value_type = db.Column(db.String(20), nullable=False, default="money")
+    effective_from = db.Column(db.Date, nullable=False, index=True)
+    effective_to = db.Column(db.Date)
+    legal_reference = db.Column(db.String(255))
+    source_url = db.Column(db.String(500))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+
+    __table_args__ = (
+        db.UniqueConstraint("code", "effective_from", name="uq_payroll_legal_code_effective"),
+    )
+
+
+class PayrollRubric(db.Model):
+    """Cadastro de verbas/rubricas para futura integração com o motor de folha."""
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(40), nullable=False, unique=True, index=True)
+    description = db.Column(db.String(180), nullable=False)
+    nature = db.Column(db.String(30), nullable=False, default="earning")
+    esocial_nature = db.Column(db.String(20))
+    inss_incidence = db.Column(db.Boolean, default=False, nullable=False)
+    fgts_incidence = db.Column(db.Boolean, default=False, nullable=False)
+    irrf_incidence = db.Column(db.Boolean, default=False, nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    default_percentage = db.Column(db.Numeric(7, 4))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=now_local, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"))
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))

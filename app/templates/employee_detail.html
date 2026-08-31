@@ -24,7 +24,7 @@
 <nav class="employee-360-nav" aria-label="Seções da ficha do colaborador">
   <a href="#dados">Visão geral</a>
   <a href="#jornada-individual">Jornada</a>
-  {% if current_user.role == 'admin' %}<a href="#acesso">Acesso</a>{% endif %}
+  {% if current_user.role == 'admin' %}<a href="#acesso">Acesso</a><a href="#folha">Pré-folha</a>{% endif %}
   <a href="#controle-ponto">Ponto</a>
   <a href="#banco-horas">Banco de horas</a>
   <a href="#solicitacoes">Solicitações</a>
@@ -259,6 +259,144 @@
     {% else %}<tr><td colspan="5">Nenhuma movimentação por solicitação.</td></tr>{% endfor %}
   </table></div>
 </div>
+
+
+{% if current_user.role == 'admin' %}
+<div class="panel payroll-employee-panel" id="folha">
+  <div class="section-heading">
+    <div>
+      <span class="section-kicker">BASE REMUNERATÓRIA</span>
+      <h2>Pré-folha de pagamento</h2>
+      <p class="muted">Dados utilizados pelo futuro motor de cálculo da folha. Estes valores ainda não representam uma folha calculada.</p>
+    </div>
+    <a class="btn secondary" href="{{url_for('rh.payroll_center')}}">Central da Pré-folha</a>
+  </div>
+
+  {% set pc = emp.payroll_config %}
+  <div class="payroll-config-summary">
+    <div>
+      <span>Salário contratual</span>
+      <strong>{% if pc %}R$ {{'%.2f'|format(pc.monthly_salary|float)}}{% else %}Não configurado{% endif %}</strong>
+    </div>
+    <div>
+      <span>Vigência</span>
+      <strong>{% if pc %}{{pc.salary_effective_date.strftime('%d/%m/%Y')}}{% else %}—{% endif %}</strong>
+    </div>
+    <div>
+      <span>Dependentes IRRF</span>
+      <strong>{{emp.payroll_dependents|selectattr('active','equalto',true)|selectattr('irrf_dependent','equalto',true)|list|length}}</strong>
+    </div>
+    <div>
+      <span>Dependentes salário-família</span>
+      <strong>{{emp.payroll_dependents|selectattr('active','equalto',true)|selectattr('salary_family_eligible','equalto',true)|list|length}}</strong>
+    </div>
+  </div>
+
+  <details class="admin-tool" open>
+    <summary>Configuração remuneratória</summary>
+    <form method="post" action="{{url_for('rh.employee_payroll_config',employee_id=emp.id)}}" class="form-grid compact-form">
+      <label>Salário-base mensal
+        <input name="monthly_salary" inputmode="decimal"
+               value="{{'%.2f'|format(pc.monthly_salary|float) if pc else ''}}"
+               placeholder="0,00" required>
+      </label>
+      <label>Vigência do salário
+        <input type="date" name="salary_effective_date"
+               value="{{pc.salary_effective_date.isoformat() if pc else today_iso}}" required>
+      </label>
+      <label>Tipo salarial
+        <select name="salary_type">
+          <option value="monthly" {% if not pc or pc.salary_type=='monthly' %}selected{% endif %}>Mensalista</option>
+          <option value="hourly" {% if pc and pc.salary_type=='hourly' %}selected{% endif %}>Horista</option>
+        </select>
+      </label>
+      <label>Vale-transporte
+        <select name="has_transport_voucher">
+          <option value="0" {% if not pc or not pc.has_transport_voucher %}selected{% endif %}>Não</option>
+          <option value="1" {% if pc and pc.has_transport_voucher %}selected{% endif %}>Sim</option>
+        </select>
+      </label>
+      <label>Percentual de desconto VT
+        <input name="transport_discount_percent" inputmode="decimal"
+               value="{{pc.transport_discount_percent if pc else '0'}}" placeholder="0">
+      </label>
+      <label>Desconto fixo alimentação
+        <input name="food_discount_value" inputmode="decimal"
+               value="{{'%.2f'|format(pc.food_discount_value|float) if pc else '0,00'}}">
+      </label>
+      <label>Desconto fixo plano de saúde
+        <input name="health_plan_discount_value" inputmode="decimal"
+               value="{{'%.2f'|format(pc.health_plan_discount_value|float) if pc else '0,00'}}">
+      </label>
+      <label>Pensão alimentícia mensal
+        <input name="pension_discount_value" inputmode="decimal"
+               value="{{'%.2f'|format(pc.pension_discount_value|float) if pc else '0,00'}}">
+      </label>
+      <label>Outro desconto fixo
+        <input name="other_fixed_discount_value" inputmode="decimal"
+               value="{{'%.2f'|format(pc.other_fixed_discount_value|float) if pc else '0,00'}}">
+      </label>
+      <label>Descrição do outro desconto
+        <input name="other_fixed_discount_description"
+               value="{{pc.other_fixed_discount_description if pc and pc.other_fixed_discount_description else ''}}">
+      </label>
+      <label class="full">Observações
+        <textarea name="notes" placeholder="Informações relevantes para a conferência da folha.">{{pc.notes if pc and pc.notes else ''}}</textarea>
+      </label>
+      <div class="full"><button type="submit">Salvar configuração da pré-folha</button></div>
+    </form>
+  </details>
+
+  <div class="section-heading payroll-dependent-heading">
+    <div>
+      <h3>Dependentes</h3>
+      <p class="muted">Cadastre separadamente a utilização para IRRF e eventual elegibilidade ao salário-família. A elegibilidade deve ser conferida documentalmente pelo RH.</p>
+    </div>
+  </div>
+
+  <details class="admin-tool">
+    <summary>Adicionar dependente</summary>
+    <form method="post" action="{{url_for('rh.employee_payroll_dependent_add',employee_id=emp.id)}}" class="form-grid compact-form">
+      <label>Nome completo<input name="full_name" required></label>
+      <label>CPF<input name="cpf" placeholder="Opcional"></label>
+      <label>Data de nascimento<input type="date" name="birth_date"></label>
+      <label>Parentesco<input name="relationship" placeholder="Ex.: Filho(a)"></label>
+      <label class="signature-checkbox">
+        <input type="checkbox" name="irrf_dependent" value="1">
+        <span>Utilizar como dependente para IRRF</span>
+      </label>
+      <label class="signature-checkbox">
+        <input type="checkbox" name="salary_family_eligible" value="1">
+        <span>Potencialmente elegível ao salário-família</span>
+      </label>
+      <label class="full">Observações<input name="notes"></label>
+      <div class="full"><button type="submit">Cadastrar dependente</button></div>
+    </form>
+  </details>
+
+  <div class="table-wrap">
+    <table>
+      <tr><th>Dependente</th><th>Parentesco</th><th>Nascimento</th><th>IRRF</th><th>Salário-família</th><th>Ação</th></tr>
+      {% for dep in emp.payroll_dependents if dep.active %}
+      <tr>
+        <td><strong>{{dep.full_name}}</strong>{% if dep.cpf %}<small class="table-subline">{{dep.cpf}}</small>{% endif %}</td>
+        <td>{{dep.relationship or '—'}}</td>
+        <td>{{dep.birth_date.strftime('%d/%m/%Y') if dep.birth_date else '—'}}</td>
+        <td>{% if dep.irrf_dependent %}<span class="badge approved">Sim</span>{% else %}Não{% endif %}</td>
+        <td>{% if dep.salary_family_eligible %}<span class="badge approved">Sim</span>{% else %}Não{% endif %}</td>
+        <td>
+          <form method="post" action="{{url_for('rh.employee_payroll_dependent_delete',dependent_id=dep.id)}}" onsubmit="return confirm('Remover este dependente da pré-folha?');">
+            <button type="submit" class="secondary">Remover</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">Nenhum dependente cadastrado para a pré-folha.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <div class="panel" id="controle-ponto">
   <div class="section-heading">

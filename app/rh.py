@@ -1,4 +1,5 @@
 import os, uuid, re, unicodedata, hashlib, mimetypes
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from datetime import datetime, date, timedelta
 import calendar
@@ -16,7 +17,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
 
@@ -635,6 +636,146 @@ def parse_time(v):
     raise ValueError(f"Horário inválido: {value}")
 
 
+def parse_money(value, default="0"):
+    raw = (value or default).strip().replace(".", "").replace(",", ".")
+    try:
+        return Decimal(raw).quantize(Decimal("0.01"))
+    except (InvalidOperation, AttributeError):
+        raise ValueError("Informe um valor monetário válido.")
+
+
+PAYROLL_2026_LEGAL_PARAMETERS = [
+    # Salário mínimo
+    ("minimum_wage", "Salário mínimo nacional", "1621.00", "money",
+     "Decreto nº 12.797/2025", "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/decreto/d12797.htm",
+     "Vigência a partir de 01/01/2026."),
+
+    # INSS empregado - limites superiores e alíquotas progressivas
+    ("inss_band_1_limit", "INSS 1ª faixa - limite", "1621.00", "money",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+    ("inss_band_1_rate", "INSS 1ª faixa - alíquota", "7.5", "percent",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+    ("inss_band_2_limit", "INSS 2ª faixa - limite", "2902.84", "money",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+    ("inss_band_2_rate", "INSS 2ª faixa - alíquota", "9", "percent",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+    ("inss_band_3_limit", "INSS 3ª faixa - limite", "4354.27", "money",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+    ("inss_band_3_rate", "INSS 3ª faixa - alíquota", "12", "percent",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+    ("inss_band_4_limit", "INSS 4ª faixa / teto de contribuição", "8475.55", "money",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+    ("inss_band_4_rate", "INSS 4ª faixa - alíquota", "14", "percent",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/inscricao-e-contribuicao/tabela-de-contribuicao-mensal", None),
+
+    # IRRF mensal 2026
+    ("irrf_band_1_limit", "IRRF 1ª faixa - limite", "2428.80", "money",
+     "Lei nº 15.191/2025 e Lei nº 15.270/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_2_limit", "IRRF 2ª faixa - limite", "2826.65", "money",
+     "Lei nº 15.191/2025 e Lei nº 15.270/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_2_rate", "IRRF 2ª faixa - alíquota", "7.5", "percent",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_2_deduction", "IRRF 2ª faixa - parcela a deduzir", "182.16", "money",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_3_limit", "IRRF 3ª faixa - limite", "3751.05", "money",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_3_rate", "IRRF 3ª faixa - alíquota", "15", "percent",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_3_deduction", "IRRF 3ª faixa - parcela a deduzir", "394.16", "money",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_4_limit", "IRRF 4ª faixa - limite", "4664.68", "money",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_4_rate", "IRRF 4ª faixa - alíquota", "22.5", "percent",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_4_deduction", "IRRF 4ª faixa - parcela a deduzir", "675.49", "money",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_5_rate", "IRRF 5ª faixa - alíquota", "27.5", "percent",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_band_5_deduction", "IRRF 5ª faixa - parcela a deduzir", "908.73", "money",
+     "Lei nº 15.191/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas", None),
+    ("irrf_dependent_deduction", "IRRF - dedução mensal por dependente", "189.59", "money",
+     "Receita Federal - tabela mensal", "https://www27.receita.fazenda.gov.br/simulador-irpf/", None),
+    ("irrf_simplified_discount", "IRRF - desconto simplificado mensal", "607.20", "money",
+     "Lei nº 15.270/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/exemplos-de-aplicacao-da-lei-15-270-2025", None),
+    ("irrf_reduction_zero_limit", "IRRF 2026 - renda mensal com redução integral até", "5000.00", "money",
+     "Lei nº 15.270/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/exemplos-de-aplicacao-da-lei-15-270-2025", None),
+    ("irrf_reduction_end_limit", "IRRF 2026 - limite de renda para redução parcial", "7350.00", "money",
+     "Lei nº 15.270/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/exemplos-de-aplicacao-da-lei-15-270-2025", None),
+    ("irrf_reduction_formula_constant", "IRRF 2026 - constante da redução parcial", "978.62", "money",
+     "Lei nº 15.270/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/exemplos-de-aplicacao-da-lei-15-270-2025", None),
+    ("irrf_reduction_formula_factor", "IRRF 2026 - fator da redução parcial", "0.133145", "factor",
+     "Lei nº 15.270/2025", "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/exemplos-de-aplicacao-da-lei-15-270-2025", None),
+
+    # Salário-família
+    ("salary_family_income_limit", "Salário-família - limite de remuneração", "1980.38", "money",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/salario-familia/valor-limite-para-direito-ao-salario-familia", None),
+    ("salary_family_quota", "Salário-família - cota por dependente elegível", "67.54", "money",
+     "Portaria Interministerial MPS/MF nº 13/2026", "https://www.gov.br/inss/pt-br/direitos-e-deveres/salario-familia/valor-limite-para-direito-ao-salario-familia", None),
+]
+
+
+def _ensure_payroll_2026_parameters():
+    effective = date(2026, 1, 1)
+    changed = False
+    for code, description, value, value_type, legal_reference, source_url, notes in PAYROLL_2026_LEGAL_PARAMETERS:
+        exists = PayrollLegalParameter.query.filter_by(code=code, effective_from=effective).first()
+        if exists:
+            continue
+        db.session.add(PayrollLegalParameter(
+            code=code,
+            description=description,
+            value=Decimal(value),
+            value_type=value_type,
+            effective_from=effective,
+            legal_reference=legal_reference,
+            source_url=source_url,
+            notes=notes,
+            created_by=current_user.id if current_user.is_authenticated else None,
+        ))
+        changed = True
+    if changed:
+        db.session.commit()
+
+
+def _ensure_default_payroll_rubrics():
+    defaults = [
+        ("SALARIO", "Salário-base", "earning", True, True, True, None),
+        ("HE50", "Hora extra 50%", "earning", True, True, True, Decimal("50")),
+        ("HE65", "Hora extra 65%", "earning", True, True, True, Decimal("65")),
+        ("HE100", "Hora extra 100%", "earning", True, True, True, Decimal("100")),
+        ("ADNOT", "Adicional noturno", "earning", True, True, True, Decimal("20")),
+        ("INSAL10", "Insalubridade 10%", "earning", True, True, True, Decimal("10")),
+        ("INSAL20", "Insalubridade 20%", "earning", True, True, True, Decimal("20")),
+        ("INSAL40", "Insalubridade 40%", "earning", True, True, True, Decimal("40")),
+        ("PERIC", "Periculosidade 30%", "earning", True, True, True, Decimal("30")),
+        ("SALFAM", "Salário-família", "earning", False, False, False, None),
+        ("INSS", "INSS empregado", "deduction", False, False, False, None),
+        ("IRRF", "IRRF", "deduction", False, False, False, None),
+        ("VT", "Vale-transporte", "deduction", False, False, False, None),
+        ("VRVA", "Vale-refeição / alimentação", "deduction", False, False, False, None),
+        ("PLANO", "Plano de saúde", "deduction", False, False, False, None),
+        ("PENSAO", "Pensão alimentícia", "deduction", False, False, False, None),
+        ("FALTA", "Faltas / ausências descontáveis", "deduction", False, False, False, None),
+    ]
+    changed = False
+    for code, description, nature, inss, fgts, irrf, pct in defaults:
+        if PayrollRubric.query.filter_by(code=code).first():
+            continue
+        db.session.add(PayrollRubric(
+            code=code,
+            description=description,
+            nature=nature,
+            inss_incidence=inss,
+            fgts_incidence=fgts,
+            irrf_incidence=irrf,
+            default_percentage=pct,
+            created_by=current_user.id if current_user.is_authenticated else None,
+        ))
+        changed = True
+    if changed:
+        db.session.commit()
+
+
 def _approved_future_bank_minutes(employee_id, from_date=None):
     """Horas de banco aprovadas para uso futuro: reservadas, mas ainda não debitadas."""
     from_date = from_date or today_local()
@@ -1208,6 +1349,220 @@ def pending_center():
         document_signatures_pending_employee=document_signatures_pending_employee,
         total_actionable=total_actionable,
     )
+
+
+
+@bp.route("/payroll")
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_center():
+    _ensure_payroll_2026_parameters()
+    _ensure_default_payroll_rubrics()
+
+    employees = Employee.query.order_by(Employee.is_active.desc(), Employee.full_name.asc()).all()
+    configured = sum(1 for emp in employees if emp.payroll_config and Decimal(emp.payroll_config.monthly_salary or 0) > 0)
+    active = sum(1 for emp in employees if emp.is_active)
+    dependents = PayrollDependent.query.filter_by(active=True).count()
+    rubrics = PayrollRubric.query.filter_by(active=True).order_by(PayrollRubric.code.asc()).all()
+    parameters = PayrollLegalParameter.query.order_by(
+        PayrollLegalParameter.effective_from.desc(),
+        PayrollLegalParameter.code.asc()
+    ).all()
+
+    return render_template(
+        "payroll_center.html",
+        employees=employees,
+        configured=configured,
+        active=active,
+        dependents=dependents,
+        rubrics=rubrics,
+        parameters=parameters,
+    )
+
+
+@bp.route("/employees/<int:employee_id>/payroll-config", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def employee_payroll_config(employee_id):
+    emp = db.get_or_404(Employee, employee_id)
+    try:
+        monthly_salary = parse_money(request.form.get("monthly_salary"))
+        food_discount = parse_money(request.form.get("food_discount_value"))
+        health_discount = parse_money(request.form.get("health_plan_discount_value"))
+        pension_discount = parse_money(request.form.get("pension_discount_value"))
+        other_discount = parse_money(request.form.get("other_fixed_discount_value"))
+        transport_percent = Decimal((request.form.get("transport_discount_percent") or "0").replace(",", "."))
+    except (ValueError, InvalidOperation):
+        flash("Revise os valores informados na configuração da folha.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#folha")
+
+    if monthly_salary < 0 or transport_percent < 0 or transport_percent > 100:
+        flash("Salário e percentuais devem possuir valores válidos.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#folha")
+
+    effective = parse_date(request.form.get("salary_effective_date")) or today_local()
+    config = emp.payroll_config
+    if not config:
+        config = PayrollEmployeeConfig(
+            employee_id=emp.id,
+            monthly_salary=monthly_salary,
+            salary_effective_date=effective,
+            updated_by=current_user.id,
+        )
+        db.session.add(config)
+
+    config.monthly_salary = monthly_salary
+    config.salary_effective_date = effective
+    config.salary_type = request.form.get("salary_type") or "monthly"
+    config.has_transport_voucher = request.form.get("has_transport_voucher") == "1"
+    config.transport_discount_percent = transport_percent
+    config.food_discount_value = food_discount
+    config.health_plan_discount_value = health_discount
+    config.pension_discount_value = pension_discount
+    config.other_fixed_discount_value = other_discount
+    config.other_fixed_discount_description = (request.form.get("other_fixed_discount_description") or "").strip() or None
+    config.notes = (request.form.get("notes") or "").strip() or None
+    config.updated_by = current_user.id
+    config.updated_at = now_local()
+
+    log_action(
+        "atualizou configuração de pré-folha",
+        "payroll_employee_config",
+        emp.id,
+        f"{emp.full_name}; salário base R$ {monthly_salary:.2f}; vigência {effective.strftime('%d/%m/%Y')}",
+    )
+    db.session.commit()
+    flash("Configuração remuneratória salva.", "success")
+    return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#folha")
+
+
+@bp.route("/employees/<int:employee_id>/payroll-dependent", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def employee_payroll_dependent_add(employee_id):
+    emp = db.get_or_404(Employee, employee_id)
+    full_name = (request.form.get("full_name") or "").strip()
+    if not full_name:
+        flash("Informe o nome do dependente.", "danger")
+        return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#folha")
+
+    item = PayrollDependent(
+        employee_id=emp.id,
+        full_name=full_name,
+        cpf=(request.form.get("cpf") or "").strip() or None,
+        birth_date=parse_date(request.form.get("birth_date")),
+        relationship=(request.form.get("relationship") or "").strip() or None,
+        irrf_dependent=request.form.get("irrf_dependent") == "1",
+        salary_family_eligible=request.form.get("salary_family_eligible") == "1",
+        notes=(request.form.get("notes") or "").strip() or None,
+        created_by=current_user.id,
+    )
+    db.session.add(item)
+    db.session.flush()
+    log_action(
+        "cadastrou dependente para pré-folha",
+        "payroll_dependent",
+        item.id,
+        f"{emp.full_name}; dependente {item.full_name}",
+    )
+    db.session.commit()
+    flash("Dependente cadastrado.", "success")
+    return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#folha")
+
+
+@bp.route("/payroll-dependents/<int:dependent_id>/delete", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def employee_payroll_dependent_delete(dependent_id):
+    item = db.get_or_404(PayrollDependent, dependent_id)
+    employee_id = item.employee_id
+    description = f"{item.employee.full_name}; dependente {item.full_name}"
+    db.session.delete(item)
+    log_action("removeu dependente da pré-folha", "payroll_dependent", dependent_id, description)
+    db.session.commit()
+    flash("Dependente removido.", "success")
+    return redirect(url_for("rh.employee_detail", employee_id=employee_id) + "#folha")
+
+
+@bp.route("/payroll/rubrics", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_rubric_add():
+    _ensure_default_payroll_rubrics()
+    code = (request.form.get("code") or "").strip().upper()
+    description = (request.form.get("description") or "").strip()
+    if not code or not description:
+        flash("Código e descrição da rubrica são obrigatórios.", "danger")
+        return redirect(url_for("rh.payroll_center") + "#rubricas")
+    if PayrollRubric.query.filter_by(code=code).first():
+        flash("Já existe uma rubrica com esse código.", "danger")
+        return redirect(url_for("rh.payroll_center") + "#rubricas")
+
+    pct_raw = (request.form.get("default_percentage") or "").strip().replace(",", ".")
+    try:
+        pct = Decimal(pct_raw) if pct_raw else None
+    except InvalidOperation:
+        flash("Percentual padrão inválido.", "danger")
+        return redirect(url_for("rh.payroll_center") + "#rubricas")
+
+    item = PayrollRubric(
+        code=code,
+        description=description,
+        nature=request.form.get("nature") or "earning",
+        esocial_nature=(request.form.get("esocial_nature") or "").strip() or None,
+        inss_incidence=request.form.get("inss_incidence") == "1",
+        fgts_incidence=request.form.get("fgts_incidence") == "1",
+        irrf_incidence=request.form.get("irrf_incidence") == "1",
+        default_percentage=pct,
+        notes=(request.form.get("notes") or "").strip() or None,
+        created_by=current_user.id,
+    )
+    db.session.add(item)
+    db.session.flush()
+    log_action("cadastrou rubrica de pré-folha", "payroll_rubric", item.id, f"{code} - {description}")
+    db.session.commit()
+    flash("Rubrica cadastrada.", "success")
+    return redirect(url_for("rh.payroll_center") + "#rubricas")
+
+
+@bp.route("/payroll/legal-parameters", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_legal_parameter_add():
+    code = (request.form.get("code") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    effective_from = parse_date(request.form.get("effective_from"))
+    try:
+        value = Decimal((request.form.get("value") or "").strip().replace(",", "."))
+    except InvalidOperation:
+        value = None
+
+    if not code or not description or not effective_from or value is None:
+        flash("Código, descrição, valor e início de vigência são obrigatórios.", "danger")
+        return redirect(url_for("rh.payroll_center") + "#parametros")
+
+    if PayrollLegalParameter.query.filter_by(code=code, effective_from=effective_from).first():
+        flash("Já existe esse parâmetro com a mesma data de vigência.", "danger")
+        return redirect(url_for("rh.payroll_center") + "#parametros")
+
+    item = PayrollLegalParameter(
+        code=code,
+        description=description,
+        value=value,
+        value_type=request.form.get("value_type") or "money",
+        effective_from=effective_from,
+        effective_to=parse_date(request.form.get("effective_to")),
+        legal_reference=(request.form.get("legal_reference") or "").strip() or None,
+        source_url=(request.form.get("source_url") or "").strip() or None,
+        notes=(request.form.get("notes") or "").strip() or None,
+        created_by=current_user.id,
+    )
+    db.session.add(item)
+    db.session.flush()
+    log_action("cadastrou parâmetro legal de pré-folha", "payroll_legal_parameter", item.id, item.code)
+    db.session.commit()
+    flash("Parâmetro legal cadastrado.", "success")
+    return redirect(url_for("rh.payroll_center") + "#parametros")
 
 
 @bp.route("/employees")
