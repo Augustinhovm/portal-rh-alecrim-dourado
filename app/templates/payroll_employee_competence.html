@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+{% block title %}Folha de {{emp.full_name}} · {{'%02d'|format(comp.month)}}/{{comp.year}}{% endblock %}
+{% block content %}
+<div class="heading payroll-heading">
+  <div>
+    <span class="executive-kicker">FOLHA INDIVIDUAL</span>
+    <h1>{{emp.full_name}}</h1>
+    <p class="muted">Competência {{'%02d'|format(comp.month)}}/{{comp.year}} · {{emp.job_title}} · {{emp.weekly_hours or 44}}h semanais</p>
+  </div>
+  <div class="payroll-heading-actions">
+    <a class="btn secondary" href="{{url_for('rh.payroll_competence_detail',competence_id=comp.id)}}#emp-{{emp.id}}">Voltar para competência</a>
+    {% if not closure or closure.status=='reopened' %}
+    <form method="post" action="{{url_for('rh.payroll_employee_competence_calculate',competence_id=comp.id,employee_id=emp.id)}}">
+      <button type="submit">Recalcular somente este colaborador</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="payroll-foundation-grid payroll-total-grid">
+  <div class="payroll-foundation-card"><span>Salário-base</span><strong>{% if emp.payroll_config %}R$ {{'%.2f'|format(emp.payroll_config.monthly_salary|float)}}{% else %}Não configurado{% endif %}</strong></div>
+  <div class="payroll-foundation-card"><span>Proventos</span><strong>{% if calc %}R$ {{'%.2f'|format(calc.gross_amount|float)}}{% else %}—{% endif %}</strong></div>
+  <div class="payroll-foundation-card"><span>Descontos</span><strong>{% if calc %}R$ {{'%.2f'|format(calc.deductions_amount|float)}}{% else %}—{% endif %}</strong></div>
+  <div class="payroll-foundation-card payroll-net-card"><span>Líquido</span><strong>{% if calc %}R$ {{'%.2f'|format(calc.net_amount|float)}}{% else %}—{% endif %}</strong></div>
+</div>
+
+{% if closure and closure.status in ['closed','authorized'] %}
+<div class="alert warning"><strong>Competência bloqueada:</strong> a folha está {{'autorizada' if closure.status=='authorized' else 'fechada'}}. Para alterar valores, utilize o fluxo de reabertura da competência quando permitido.</div>
+{% endif %}
+
+{% if warnings %}
+<section class="panel">
+  <div class="section-heading"><div><h2>Alertas para conferência</h2><p class="muted">Itens que merecem revisão antes do fechamento.</p></div></div>
+  <div class="payroll-warning-list">{% for w in warnings %}<div>⚠ {{w}}</div>{% endfor %}</div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="section-heading">
+    <div><span class="section-kicker">EVENTOS DA COMPETÊNCIA</span><h2>Verbas e descontos</h2><p class="muted">Inclua ou remova somente os eventos deste colaborador. Depois clique em “Recalcular somente este colaborador”.</p></div>
+  </div>
+
+  {% if events %}
+  <div class="table-wrap">
+    <table>
+      <tr><th>Rubrica</th><th>Referência</th><th>Valor informado</th><th>Observação</th><th>Ação</th></tr>
+      {% for ev in events %}
+      <tr>
+        <td><strong>{{ev.rubric.code}}</strong><small class="table-subline">{{ev.rubric.description}}</small></td>
+        <td>{{ev.reference_quantity or ev.reference_label or '—'}}</td>
+        <td>{% if ev.amount is not none %}R$ {{'%.2f'|format(ev.amount|float)}}{% else %}Calculado pelo motor{% endif %}</td>
+        <td>{{ev.notes or '—'}}</td>
+        <td>
+          {% if not closure or closure.status=='reopened' %}
+          <form method="post" action="{{url_for('rh.payroll_event_delete',event_id=ev.id)}}" onsubmit="return confirm('Remover esta verba da folha deste colaborador?');">
+            <input type="hidden" name="return_to" value="individual">
+            <button class="secondary" type="submit">Remover</button>
+          </form>
+          {% else %}<span class="badge">Bloqueado</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Nenhuma verba variável lançada para este colaborador.</div>
+  {% endif %}
+
+  {% if not closure or closure.status=='reopened' %}
+  <details class="admin-tool payroll-individual-event-form" open>
+    <summary>Adicionar verba ou desconto</summary>
+    <form method="post" action="{{url_for('rh.payroll_event_add',competence_id=comp.id)}}" class="form-grid compact-form">
+      <input type="hidden" name="employee_id" value="{{emp.id}}">
+      <input type="hidden" name="return_to" value="individual">
+      <label>Rubrica
+        <select name="rubric_id" required>
+          {% for rub in rubrics %}<option value="{{rub.id}}">{{rub.code}} · {{rub.description}}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Quantidade / horas / dias
+        <input name="reference_quantity" inputmode="decimal" placeholder="Ex.: 24 para 24 horas">
+      </label>
+      <label>Referência
+        <input name="reference_label" placeholder="Ex.: trabalho em folga 15/08">
+      </label>
+      <label>Valor em R$
+        <input name="amount" inputmode="decimal" placeholder="Deixe vazio para HE ou falta automática">
+      </label>
+      <label class="full">Observação
+        <input name="notes" placeholder="Motivo, escala, autorização ou documento de suporte">
+      </label>
+      <div class="full payroll-event-help">
+        Para trabalho em dia de folga/feriado, selecione <strong>HE100_FOLGA · HE 100% — trabalho em folga/feriado</strong>.
+        Informe a quantidade de horas e deixe o valor vazio. O Portal calcula a HE a 100% e gera automaticamente uma segunda linha
+        <strong>DSR_HE100_FOLGA</strong>, mantendo os dois valores separados na memória, no relatório consolidado e no holerite.
+      </div>
+      <div class="full"><button type="submit">Adicionar evento</button></div>
+    </form>
+  </details>
+  {% endif %}
+</section>
+
+{% if calc %}
+<section class="panel">
+  <div class="section-heading">
+    <div><span class="section-kicker">RESULTADO ATUAL</span><h2>Composição da folha individual</h2><p class="muted">Resultado do último cálculo realizado para este colaborador.</p></div>
+    <a class="btn secondary" href="{{url_for('rh.payroll_calculation_detail',calculation_id=calc.id)}}">Abrir memória detalhada</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Código</th><th>Descrição</th><th>Referência</th><th>Provento</th><th>Desconto</th></tr>
+      {% for item in items %}
+      <tr>
+        <td><strong>{{item.rubric_code}}</strong></td>
+        <td>{{item.description}}</td>
+        <td>{{item.reference or '—'}}</td>
+        <td>{% if item.nature=='earning' %}R$ {{'%.2f'|format(item.amount|float)}}{% else %}—{% endif %}</td>
+        <td>{% if item.nature=='deduction' %}R$ {{'%.2f'|format(item.amount|float)}}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr class="payroll-result-total">
+        <td colspan="3"><strong>TOTAIS</strong></td>
+        <td><strong>R$ {{'%.2f'|format(calc.gross_amount|float)}}</strong></td>
+        <td><strong>R$ {{'%.2f'|format(calc.deductions_amount|float)}}</strong></td>
+      </tr>
+    </table>
+  </div>
+  <div class="payroll-individual-net">
+    <span>Líquido estimado</span>
+    <strong>R$ {{'%.2f'|format(calc.net_amount|float)}}</strong>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

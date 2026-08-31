@@ -3995,3 +3995,59 @@ code {
 .payroll-reopen{margin-top:14px}
 .payroll-authorization-record{padding:12px 14px;border-radius:12px;background:#f4f7f5;border:1px solid #dfe7e2;font-size:.82rem;overflow-wrap:anywhere}
 @media(max-width:760px){.payroll-heading-actions{justify-content:flex-start;width:100%}.payroll-heading-actions>*{width:100%}.payroll-heading-actions .btn,.payroll-heading-actions button{width:100%;text-align:center}}
+
+
+/* V9.5.2 - edição individual da folha */
+.payroll-employee-name-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(45,45,45,.28);
+}
+.payroll-employee-name-link:hover {
+  border-bottom-color: currentColor;
+}
+.payroll-employee-actions {
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+}
+.payroll-net-card strong {
+  font-size:1.35rem;
+}
+.payroll-individual-event-form {
+  margin-top:16px;
+}
+.payroll-result-total td {
+  background:#f7f2e5;
+  border-top:2px solid #c99b28;
+}
+.payroll-individual-net {
+  margin-top:14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:15px;
+  padding:16px 18px;
+  border:1px solid #ded5ba;
+  border-radius:14px;
+  background:#fbf6e8;
+}
+.payroll-individual-net span {
+  font-weight:800;
+  color:#5b584e;
+}
+.payroll-individual-net strong {
+  font-size:1.45rem;
+}
+@media (max-width:760px) {
+  .payroll-employee-actions {
+    width:100%;
+    justify-content:flex-start;
+  }
+  .payroll-individual-net {
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}

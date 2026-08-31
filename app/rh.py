@@ -743,6 +743,8 @@ def _ensure_default_payroll_rubrics():
         ("HE50", "Hora extra 50%", "earning", True, True, True, Decimal("50")),
         ("HE65", "Hora extra 65%", "earning", True, True, True, Decimal("65")),
         ("HE100", "Hora extra 100%", "earning", True, True, True, Decimal("100")),
+        ("HE100_FOLGA", "HE 100% — trabalho em folga/feriado", "earning", True, True, True, Decimal("100")),
+        ("DSR_HE100_FOLGA", "DSR sobre HE 100% — folga/feriado", "earning", True, True, True, None),
         ("ADNOT", "Adicional noturno", "earning", True, True, True, Decimal("20")),
         ("INSAL10", "Insalubridade 10%", "earning", True, True, True, Decimal("10")),
         ("INSAL20", "Insalubridade 20%", "earning", True, True, True, Decimal("20")),
@@ -1520,6 +1522,25 @@ def _month_data_warnings(emp, year, month):
     return warnings
 
 
+
+def _payroll_dsr_calendar(year, month):
+    """Retorna dias de trabalho-base e repousos dominicais para a memória de DSR.
+    A regra automática usa segunda a sábado como dias úteis e domingos como repouso.
+    Feriados adicionais que impactem o DSR devem ser conferidos pelo RH conforme CCT/localidade.
+    """
+    import calendar
+    days_in_month = calendar.monthrange(year, month)[1]
+    work_days = 0
+    rest_days = 0
+    for day in range(1, days_in_month + 1):
+        wd = date(year, month, day).weekday()  # segunda=0 ... domingo=6
+        if wd == 6:
+            rest_days += 1
+        else:
+            work_days += 1
+    return work_days, rest_days
+
+
 def _calculate_payroll_employee(competence, emp):
     start, end = _payroll_period(competence.year, competence.month)
     ref_date = end
@@ -1574,6 +1595,27 @@ def _calculate_payroll_employee(competence, emp):
             rub.code, rub.description, rub.nature, amount, ref, "manual",
             rub.inss_incidence, rub.irrf_incidence, rub.fgts_incidence, 40,
         )
+
+
+    # DSR sobre HE 100% em folga/feriado.
+    # Mantemos a verba separada para aparecer discriminada na folha e no holerite.
+    he100_folga_total = sum(
+        i.amount for i in items
+        if i.nature == "earning" and i.rubric_code == "HE100_FOLGA"
+    )
+    if he100_folga_total > 0:
+        work_days, rest_days = _payroll_dsr_calendar(competence.year, competence.month)
+        if work_days > 0 and rest_days > 0:
+            dsr_amount = (he100_folga_total / Decimal(work_days) * Decimal(rest_days)).quantize(Decimal("0.01"))
+            add_item(
+                "DSR_HE100_FOLGA",
+                "DSR sobre HE 100% — folga/feriado",
+                "earning",
+                dsr_amount,
+                f"R$ {he100_folga_total:.2f} ÷ {work_days} dias úteis × {rest_days} repouso(s)",
+                "engine",
+                True, True, True, 45,
+            )
 
     # Salário-família: somente dependentes marcados pelo RH como elegíveis.
     eligible=sum(1 for dep in emp.payroll_dependents if dep.active and dep.salary_family_eligible)
@@ -1932,13 +1974,32 @@ def _payroll_consolidated_pdf(comp):
     doc=SimpleDocTemplate(buff,pagesize=landscape(A4),rightMargin=10*mm,leftMargin=10*mm,topMargin=9*mm,bottomMargin=10*mm)
     story=_payroll_header_story("RELATORIO CONSOLIDADO DA FOLHA",f"Competência {comp.month:02d}/{comp.year} | Conferência e autorização interna",page_width)
     story.extend([_payroll_status_card(comp,calculations,page_width),Spacer(1,9)])
-    data=[["COLABORADOR","CARGO / PROJETO","SALARIO-BASE","PROVENTOS","INSS","IRRF","DESCONTOS","LIQUIDO"]]
+    data=[["COLABORADOR","CARGO / PROJETO","VERBAS VARIÁVEIS","PROVENTOS","INSS","IRRF","DESCONTOS","LÍQUIDO"]]
     tg=td=tn=Decimal("0")
     for i,calc in enumerate(calculations):
-        emp=calc.employee; tg+=Decimal(calc.gross_amount or 0); td+=Decimal(calc.deductions_amount or 0); tn+=Decimal(calc.net_amount or 0)
-        data.append([Paragraph(f"<b>{emp.full_name}</b>",styles["PayrollSmall"]),Paragraph(f"{emp.job_title}<br/><font color='#70736F'>{emp.project}</font>",styles["PayrollSmall"]),_fmt_brl(calc.base_salary),_fmt_brl(calc.gross_amount),_fmt_brl(calc.inss_amount),_fmt_brl(calc.irrf_amount),_fmt_brl(calc.deductions_amount),_fmt_brl(calc.net_amount)])
+        emp=calc.employee
+        tg+=Decimal(calc.gross_amount or 0); td+=Decimal(calc.deductions_amount or 0); tn+=Decimal(calc.net_amount or 0)
+        variable_items=PayrollCalculationItem.query.filter(
+            PayrollCalculationItem.calculation_id==calc.id,
+            or_(
+                PayrollCalculationItem.source=="manual",
+                PayrollCalculationItem.rubric_code=="DSR_HE100_FOLGA",
+            )
+        ).order_by(PayrollCalculationItem.sort_order,PayrollCalculationItem.id).all()
+        variable_lines=[]
+        for item in variable_items:
+            sign="+" if item.nature=="earning" else "-"
+            variable_lines.append(f"<b>{item.rubric_code}</b> {sign} {_fmt_brl(item.amount)}")
+        variable_text="<br/>".join(variable_lines) if variable_lines else "—"
+        data.append([
+            Paragraph(f"<b>{emp.full_name}</b>",styles["PayrollSmall"]),
+            Paragraph(f"{emp.job_title}<br/><font color='#70736F'>{emp.project}</font>",styles["PayrollSmall"]),
+            Paragraph(variable_text,styles["PayrollSmall"]),
+            _fmt_brl(calc.gross_amount),_fmt_brl(calc.inss_amount),_fmt_brl(calc.irrf_amount),
+            _fmt_brl(calc.deductions_amount),_fmt_brl(calc.net_amount)
+        ])
     data.append(["TOTAL DA FOLHA","","",_fmt_brl(tg),"","",_fmt_brl(td),_fmt_brl(tn)])
-    table=Table(data,colWidths=[54*mm,49*mm,27*mm,28*mm,23*mm,23*mm,28*mm,31*mm],repeatRows=1)
+    table=Table(data,colWidths=[45*mm,40*mm,54*mm,27*mm,22*mm,22*mm,27*mm,31*mm],repeatRows=1)
     ts=[("BACKGROUND",(0,0),(-1,0),charcoal),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),7.2),("LINEBELOW",(0,0),(-1,0),1,gold),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("ALIGN",(2,1),(-1,-1),"RIGHT"),("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6)]
     for row in range(1,len(data)-1):
         ts.append(("BACKGROUND",(0,row),(-1,row),colors.white if row%2 else colors.HexColor("#FAFAF8")))
@@ -2043,7 +2104,7 @@ def payroll_competence_detail(competence_id):
     employees=Employee.query.filter_by(is_active=True).order_by(Employee.full_name.asc()).all()
     calculations={c.employee_id:c for c in PayrollEmployeeCalculation.query.filter_by(competence_id=comp.id).all()}
     warnings={emp.id:_month_data_warnings(emp,comp.year,comp.month) for emp in employees}
-    rubrics=PayrollRubric.query.filter_by(active=True).order_by(PayrollRubric.nature.asc(),PayrollRubric.code.asc()).all()
+    rubrics=PayrollRubric.query.filter(PayrollRubric.active==True, PayrollRubric.code!="DSR_HE100_FOLGA").order_by(PayrollRubric.nature.asc(),PayrollRubric.code.asc()).all()
     events=PayrollManualEvent.query.filter_by(competence_id=comp.id).order_by(PayrollManualEvent.employee_id,PayrollManualEvent.id).all()
     events_by_employee={}
     for ev in events: events_by_employee.setdefault(ev.employee_id,[]).append(ev)
@@ -2054,6 +2115,81 @@ def payroll_competence_detail(competence_id):
     }
     return render_template("payroll_competence.html",comp=comp,employees=employees,calculations=calculations,
         warnings=warnings,rubrics=rubrics,events_by_employee=events_by_employee,totals=totals,closure=comp.closure)
+
+
+
+@bp.route("/payroll/competence/<int:competence_id>/employee/<int:employee_id>")
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_employee_competence_detail(competence_id, employee_id):
+    _ensure_payroll_2026_parameters()
+    _ensure_default_payroll_rubrics()
+    comp = db.get_or_404(PayrollCompetence, competence_id)
+    emp = db.get_or_404(Employee, employee_id)
+    calc = PayrollEmployeeCalculation.query.filter_by(
+        competence_id=comp.id, employee_id=emp.id
+    ).first()
+    events = PayrollManualEvent.query.filter_by(
+        competence_id=comp.id, employee_id=emp.id
+    ).order_by(PayrollManualEvent.id.asc()).all()
+    rubrics = PayrollRubric.query.filter(PayrollRubric.active==True, PayrollRubric.code!="DSR_HE100_FOLGA").order_by(
+        PayrollRubric.nature.asc(), PayrollRubric.code.asc()
+    ).all()
+    warnings = _month_data_warnings(emp, comp.year, comp.month)
+    items = []
+    detail = {}
+    if calc:
+        items = PayrollCalculationItem.query.filter_by(
+            calculation_id=calc.id
+        ).order_by(PayrollCalculationItem.sort_order, PayrollCalculationItem.id).all()
+        try:
+            detail = json.loads(calc.calculation_notes or "{}")
+        except Exception:
+            detail = {}
+    return render_template(
+        "payroll_employee_competence.html",
+        comp=comp,
+        emp=emp,
+        calc=calc,
+        events=events,
+        rubrics=rubrics,
+        warnings=warnings,
+        items=items,
+        detail=detail,
+        closure=comp.closure,
+    )
+
+
+@bp.route("/payroll/competence/<int:competence_id>/employee/<int:employee_id>/calculate", methods=["POST"])
+@login_required
+@roles_required(ROLE_ADMIN)
+def payroll_employee_competence_calculate(competence_id, employee_id):
+    _ensure_payroll_2026_parameters()
+    _ensure_default_payroll_rubrics()
+    comp = db.get_or_404(PayrollCompetence, competence_id)
+    emp = db.get_or_404(Employee, employee_id)
+    if _payroll_closure_is_locked(comp):
+        flash("A competência está fechada. Reabra antes de recalcular este colaborador.", "danger")
+        return redirect(url_for("rh.payroll_employee_competence_detail", competence_id=comp.id, employee_id=emp.id))
+    try:
+        calc, warns = _calculate_payroll_employee(comp, emp)
+        if not calc:
+            raise ValueError("O colaborador ainda não possui salário-base configurado.")
+        comp.status = "calculated"
+        comp.calculated_at = now_local()
+        comp.calculated_by = current_user.id
+        log_action(
+            "recalculou colaborador na pré-folha",
+            "payroll_employee_calculation",
+            calc.id,
+            f"{emp.full_name}; {comp.month:02d}/{comp.year}; líquido R$ {Decimal(calc.net_amount or 0):.2f}",
+        )
+        db.session.commit()
+        flash(f"Folha individual de {emp.full_name} atualizada.", "success")
+    except ValueError as exc:
+        db.session.rollback()
+        flash(f"Não foi possível recalcular este colaborador: {exc}", "danger")
+    return redirect(url_for("rh.payroll_employee_competence_detail", competence_id=comp.id, employee_id=emp.id))
 
 
 @bp.route("/payroll/competence/<int:competence_id>/events",methods=["POST"])
@@ -2084,7 +2220,9 @@ def payroll_event_add(competence_id):
     db.session.add(ev); db.session.flush()
     log_action("incluiu evento na pré-folha","payroll_event",ev.id,f"{emp.full_name}; {rub.code}; {comp.month:02d}/{comp.year}")
     comp.status="open"; db.session.commit()
-    flash("Evento incluído. Recalcule a competência para atualizar os valores.","success")
+    flash("Evento incluído. Recalcule para atualizar os valores.","success")
+    if request.form.get("return_to") == "individual":
+        return redirect(url_for("rh.payroll_employee_competence_detail", competence_id=comp.id, employee_id=emp.id))
     return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id)+f"#emp-{emp.id}")
 
 
@@ -2093,12 +2231,20 @@ def payroll_event_add(competence_id):
 @roles_required(ROLE_ADMIN)
 def payroll_event_delete(event_id):
     ev=db.get_or_404(PayrollManualEvent,event_id)
+    cid=ev.competence_id
+    eid=ev.employee_id
     if _payroll_closure_is_locked(ev.competence):
         flash("A competência está fechada. Reabra antes de remover eventos.","danger")
-        return redirect(url_for("rh.payroll_competence_detail",competence_id=ev.competence_id)); cid=ev.competence_id; eid=ev.employee_id
+        if request.form.get("return_to") == "individual":
+            return redirect(url_for("rh.payroll_employee_competence_detail",competence_id=cid,employee_id=eid))
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=cid))
     log_action("removeu evento da pré-folha","payroll_event",ev.id,f"{ev.employee.full_name}; {ev.rubric.code}")
-    ev.competence.status="open"; db.session.delete(ev); db.session.commit()
-    flash("Evento removido. Recalcule a competência.","success")
+    ev.competence.status="open"
+    db.session.delete(ev)
+    db.session.commit()
+    flash("Evento removido. Recalcule a folha do colaborador.","success")
+    if request.form.get("return_to") == "individual":
+        return redirect(url_for("rh.payroll_employee_competence_detail",competence_id=cid,employee_id=eid))
     return redirect(url_for("rh.payroll_competence_detail",competence_id=cid)+f"#emp-{eid}")
 
 

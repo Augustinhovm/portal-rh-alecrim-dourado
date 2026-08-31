@@ -286,3 +286,12 @@ Após o cálculo, o RH pode fechar a competência, gerar um PDF consolidado com 
 
 ## V9.5.1 - Redesign dos PDFs da Folha
 Novo visual para o relatório consolidado e para os holerites gerados pelo Portal: cabeçalho institucional mais limpo, cartões de resumo, hierarquia tipográfica, tabelas com linhas alternadas, destaque para líquido a receber e melhor aproveitamento da página, mantendo a identidade dourada/grafite da Associação Alecrim Dourado.
+
+
+## V9.5.2 — HE 100% em folga/feriado + DSR + edição individual
+- Nova rubrica HE100_FOLGA para trabalho em dia de folga/feriado.
+- O motor calcula a HE a 100% pela hora normal e cria DSR_HE100_FOLGA como linha separada.
+- A memória de cálculo, o holerite e a folha consolidada discriminam HE 100% e DSR.
+- Na tela da competência, o nome do colaborador e o botão “Atualizar folha individual” abrem uma tela própria.
+- A tela individual permite lançar/remover eventos e recalcular somente aquele colaborador.
+- O DSR automático desta etapa usa segunda a sábado como dias úteis e domingos como repousos; feriados adicionais e regras específicas de CCT/localidade devem ser conferidos pelo RH.

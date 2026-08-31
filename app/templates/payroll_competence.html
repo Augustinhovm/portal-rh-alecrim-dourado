@@ -43,8 +43,16 @@
 {% for emp in employees %}
 <section class="panel payroll-employee-run" id="emp-{{emp.id}}">
   {% set calc=calculations.get(emp.id) %}
-  <div class="section-heading"><div><h2>{{emp.full_name}}</h2><p class="muted">{{emp.job_title}} · {{emp.weekly_hours or 44}}h semanais</p></div>
-  {% if calc %}<a class="btn secondary" href="{{url_for('rh.payroll_calculation_detail',calculation_id=calc.id)}}">Ver memória completa</a>{% endif %}</div>
+  <div class="section-heading">
+    <div>
+      <h2><a class="payroll-employee-name-link" href="{{url_for('rh.payroll_employee_competence_detail',competence_id=comp.id,employee_id=emp.id)}}">{{emp.full_name}}</a></h2>
+      <p class="muted">{{emp.job_title}} · {{emp.weekly_hours or 44}}h semanais</p>
+    </div>
+    <div class="payroll-employee-actions">
+      <a class="btn secondary" href="{{url_for('rh.payroll_employee_competence_detail',competence_id=comp.id,employee_id=emp.id)}}">Atualizar folha individual</a>
+      {% if calc %}<a class="btn secondary" href="{{url_for('rh.payroll_calculation_detail',calculation_id=calc.id)}}">Ver memória completa</a>{% endif %}
+    </div>
+  </div>
   {% if warnings.get(emp.id) %}<div class="payroll-warning-list">{% for w in warnings.get(emp.id) %}<div>⚠ {{w}}</div>{% endfor %}</div>{% endif %}
   <div class="payroll-employee-values">
     <div><span>Salário-base</span><strong>{% if emp.payroll_config %}R$ {{'%.2f'|format(emp.payroll_config.monthly_salary|float)}}{% else %}Não configurado{% endif %}</strong></div>
@@ -65,7 +73,7 @@
     <label>Referência textual<input name="reference_label" placeholder="Ex.: decisão RH 31/08"></label>
     <label>Valor em R$<input name="amount" inputmode="decimal" placeholder="Deixe vazio apenas para HE e FALTA"></label>
     <label class="full">Observação<input name="notes" placeholder="Motivo e documento de suporte"></label>
-    <div class="full payroll-event-help">HE50/HE65/HE100: se o valor ficar vazio, o Portal calcula pela hora normal usando divisor = jornada semanal × 5. FALTA: quantidade representa dias e usa salário/30. Adicionais como insalubridade, periculosidade e noturno exigem valor informado pelo RH nesta etapa.</div>
+    <div class="full payroll-event-help">HE50/HE65/HE100 e HE100_FOLGA: se o valor ficar vazio, o Portal calcula pela hora normal usando divisor = jornada semanal × 5. Ao usar HE100_FOLGA, o DSR é calculado pelo motor e aparece em rubrica separada. FALTA: quantidade representa dias e usa salário/30. Adicionais como insalubridade, periculosidade e noturno exigem valor informado pelo RH nesta etapa.</div>
     <div class="full"><button type="submit">Adicionar evento</button></div>
   </form></details>{% endif %}
 </section>
