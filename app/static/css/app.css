@@ -4051,3 +4051,18 @@ code {
     flex-direction:column;
   }
 }
+
+
+/* V9.5.3 - reabertura de folha autorizada */
+.payroll-reopen-authorized {
+  margin-top: 16px;
+  border-top: 1px solid rgba(90,90,90,.14);
+  padding-top: 12px;
+}
+.payroll-reopen-authorized summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+.payroll-reopen-authorized .alert {
+  margin: 12px 0;
+}

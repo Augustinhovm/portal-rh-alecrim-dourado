@@ -469,6 +469,31 @@ class PayrollClosure(db.Model):
     reopener = db.relationship("User", foreign_keys=[reopened_by])
 
 
+class PayrollAuthorizationHistory(db.Model):
+    """Histórico imutável das autorizações anteriores de uma competência reaberta."""
+    id = db.Column(db.Integer, primary_key=True)
+    competence_id = db.Column(db.Integer, db.ForeignKey("payroll_competence.id"), nullable=False, index=True)
+    closure_id = db.Column(db.Integer, db.ForeignKey("payroll_closure.id"), nullable=False, index=True)
+    authorization_code = db.Column(db.String(64), nullable=False, index=True)
+    authorized_at = db.Column(db.DateTime, nullable=False)
+    authorized_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    authorization_ip = db.Column(db.String(64))
+    authorization_note = db.Column(db.String(255))
+    gross_total = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    deductions_total = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    net_total = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    employee_count = db.Column(db.Integer, nullable=False, default=0)
+    snapshot_json = db.Column(db.Text, nullable=False)
+    reopened_at = db.Column(db.DateTime, nullable=False, default=now_local)
+    reopened_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    reopen_reason = db.Column(db.String(255), nullable=False)
+
+    competence = db.relationship("PayrollCompetence")
+    closure = db.relationship("PayrollClosure")
+    authorizer = db.relationship("User", foreign_keys=[authorized_by])
+    reopener = db.relationship("User", foreign_keys=[reopened_by])
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))

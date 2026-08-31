@@ -17,7 +17,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image as PILImage
 from .extensions import db
-from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, PayrollCompetence, PayrollManualEvent, PayrollEmployeeCalculation, PayrollCalculationItem, PayrollClosure, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
+from .models import User, Employee, EmployeeWorkSchedule, WeekendDuty, TimeClock, MedicalCertificate, MedicalCertificateAllowance, AuthThrottle, SecurityEvent, Request, Document, DocumentSignatureFlow, PayrollEmployeeConfig, PayrollDependent, PayrollLegalParameter, PayrollRubric, PayrollCompetence, PayrollManualEvent, PayrollEmployeeCalculation, PayrollCalculationItem, PayrollClosure, PayrollAuthorizationHistory, AuditLog, BankHourAdjustment, Vacation, VacationSchedule, TimePeriodClosure, TimeReportAcknowledgement, TimeReportFinalization, Payslip, ROLE_ADMIN, ROLE_MANAGER, ROLE_EMPLOYEE
 from .security import roles_required, can_manage_employee, log_action, log_security_event, client_ip
 from .timezone import now_local, today_local
 
@@ -2113,8 +2113,12 @@ def payroll_competence_detail(competence_id):
         "deductions":sum(Decimal(c.deductions_amount or 0) for c in calculations.values()),
         "net":sum(Decimal(c.net_amount or 0) for c in calculations.values()),
     }
+    authorization_history=PayrollAuthorizationHistory.query.filter_by(
+        competence_id=comp.id
+    ).order_by(PayrollAuthorizationHistory.reopened_at.desc()).all()
     return render_template("payroll_competence.html",comp=comp,employees=employees,calculations=calculations,
-        warnings=warnings,rubrics=rubrics,events_by_employee=events_by_employee,totals=totals,closure=comp.closure)
+        warnings=warnings,rubrics=rubrics,events_by_employee=events_by_employee,totals=totals,closure=comp.closure,
+        authorization_history=authorization_history)
 
 
 
@@ -2362,16 +2366,163 @@ def payroll_competence_authorize(competence_id):
 @login_required
 @roles_required(ROLE_ADMIN)
 def payroll_competence_reopen(competence_id):
-    comp=db.get_or_404(PayrollCompetence,competence_id); closure=comp.closure
-    if not closure or closure.status!="closed":
-        flash("Somente uma competência fechada e ainda não autorizada pode ser reaberta.","danger")
+    comp=db.get_or_404(PayrollCompetence,competence_id)
+    closure=comp.closure
+    if not closure or closure.status not in {"closed","authorized"}:
+        flash("Somente uma competência fechada ou autorizada pode ser reaberta.","danger")
         return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
     reason=(request.form.get("reason") or "").strip()
     if len(reason)<5:
-        flash("Informe o motivo da reabertura.","danger"); return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
-    closure.status="reopened"; closure.reopened_at=now_local(); closure.reopened_by=current_user.id; closure.reopen_reason=reason
-    log_action("reabriu pré-folha","payroll_closure",comp.id,f"{comp.month:02d}/{comp.year}; {reason}")
-    db.session.commit(); flash("Competência reaberta. Recalcule e feche novamente após os ajustes.","success")
+        flash("Informe um motivo de reabertura com pelo menos 5 caracteres.","danger")
+        return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
+    was_authorized = closure.status == "authorized"
+
+    if was_authorized:
+        if request.form.get("confirm_reopen_authorized")!="1":
+            flash("Confirme que deseja invalidar os holerites já liberados desta competência.","danger")
+            return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+        password=request.form.get("password") or ""
+        if not current_user.check_password(password):
+            log_security_event(
+                "payroll_authorized_reopen_failed",
+                severity="warning",
+                user=current_user,
+                details=f"Senha inválida ao tentar reabrir folha autorizada {comp.month:02d}/{comp.year}."
+            )
+            db.session.commit()
+            flash("Senha do administrador inválida.","danger")
+            return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
+
+    stamp=now_local()
+    files_to_remove=[]
+
+    if was_authorized:
+        calculations=PayrollEmployeeCalculation.query.filter_by(competence_id=comp.id).all()
+        snapshot=[]
+        gross_total=Decimal("0")
+        deductions_total=Decimal("0")
+        net_total=Decimal("0")
+
+        for calc in calculations:
+            gross_total += Decimal(calc.gross_amount or 0)
+            deductions_total += Decimal(calc.deductions_amount or 0)
+            net_total += Decimal(calc.net_amount or 0)
+            calc_items=PayrollCalculationItem.query.filter_by(
+                calculation_id=calc.id
+            ).order_by(PayrollCalculationItem.sort_order,PayrollCalculationItem.id).all()
+            snapshot.append({
+                "employee_id": calc.employee_id,
+                "employee_name": calc.employee.full_name,
+                "base_salary": str(calc.base_salary or 0),
+                "gross_amount": str(calc.gross_amount or 0),
+                "deductions_amount": str(calc.deductions_amount or 0),
+                "net_amount": str(calc.net_amount or 0),
+                "inss_amount": str(calc.inss_amount or 0),
+                "irrf_amount": str(calc.irrf_amount or 0),
+                "items": [{
+                    "rubric_code": item.rubric_code,
+                    "description": item.description,
+                    "nature": item.nature,
+                    "reference": item.reference,
+                    "amount": str(item.amount or 0),
+                    "source": item.source,
+                } for item in calc_items],
+            })
+
+        previous_code=closure.authorization_code or "SEM-CODIGO"
+        history=PayrollAuthorizationHistory(
+            competence_id=comp.id,
+            closure_id=closure.id,
+            authorization_code=previous_code,
+            authorized_at=closure.authorized_at or stamp,
+            authorized_by=closure.authorized_by or current_user.id,
+            authorization_ip=closure.authorization_ip,
+            authorization_note=closure.authorization_note,
+            gross_total=gross_total,
+            deductions_total=deductions_total,
+            net_total=net_total,
+            employee_count=len(calculations),
+            snapshot_json=json.dumps(snapshot,ensure_ascii=False),
+            reopened_at=stamp,
+            reopened_by=current_user.id,
+            reopen_reason=reason,
+        )
+        db.session.add(history)
+
+        # Holerites gerados automaticamente por esta folha deixam de ficar disponíveis.
+        generated_payslips=Payslip.query.filter_by(
+            year=comp.year,
+            month=comp.month,
+            matched_by="portal_payroll",
+        ).all()
+        for item in generated_payslips:
+            files_to_remove.append(item.stored_name)
+            db.session.delete(item)
+
+        old_code=closure.authorization_code
+        old_authorized_at=closure.authorized_at
+
+        # A autorização atual deixa de ser válida; a anterior fica preservada no histórico.
+        closure.authorized_at=None
+        closure.authorized_by=None
+        closure.authorization_ip=None
+        closure.authorization_code=None
+        closure.authorization_note=None
+
+        log_action(
+            "reabriu folha de pagamento autorizada",
+            "payroll_closure",
+            comp.id,
+            (
+                f"{comp.month:02d}/{comp.year}; autorização anterior {old_code or 'sem código'}; "
+                f"autorizada em {old_authorized_at.strftime('%d/%m/%Y %H:%M') if old_authorized_at else 'data não registrada'}; "
+                f"{len(generated_payslips)} holerite(s) invalidado(s); motivo: {reason}"
+            ),
+        )
+        log_security_event(
+            "payroll_authorized_reopened",
+            severity="warning",
+            user=current_user,
+            details=(
+                f"Folha autorizada {comp.month:02d}/{comp.year} reaberta. "
+                f"Autorização anterior {old_code or 'sem código'} invalidada; "
+                f"{len(generated_payslips)} holerite(s) removido(s) do acesso; motivo: {reason}"
+            ),
+        )
+    else:
+        log_action(
+            "reabriu pré-folha",
+            "payroll_closure",
+            comp.id,
+            f"{comp.month:02d}/{comp.year}; {reason}",
+        )
+
+    closure.status="reopened"
+    closure.reopened_at=stamp
+    closure.reopened_by=current_user.id
+    closure.reopen_reason=reason
+    comp.status="open"
+
+    db.session.commit()
+
+    for stored in files_to_remove:
+        try:
+            path=os.path.join(current_app.config["UPLOAD_FOLDER"],stored)
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+    if was_authorized:
+        flash(
+            "Folha autorizada reaberta. Os holerites anteriores foram invalidados. "
+            "Faça os ajustes, recalcule, feche e autorize novamente para gerar novos holerites.",
+            "success",
+        )
+    else:
+        flash("Competência reaberta. Recalcule e feche novamente após os ajustes.","success")
     return redirect(url_for("rh.payroll_competence_detail",competence_id=comp.id))
 
 

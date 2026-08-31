@@ -295,3 +295,14 @@ Novo visual para o relatório consolidado e para os holerites gerados pelo Porta
 - Na tela da competência, o nome do colaborador e o botão “Atualizar folha individual” abrem uma tela própria.
 - A tela individual permite lançar/remover eventos e recalcular somente aquele colaborador.
 - O DSR automático desta etapa usa segunda a sábado como dias úteis e domingos como repousos; feriados adicionais e regras específicas de CCT/localidade devem ser conferidos pelo RH.
+
+
+## V9.5.3 — Reabertura de folha autorizada
+- Folhas já autorizadas podem ser reabertas pelo RH.
+- Reabertura pós-autorização exige motivo, senha do administrador e confirmação explícita.
+- A autorização anterior é preservada em PayrollAuthorizationHistory com totais e snapshot por colaborador/rubrica.
+- Holerites gerados automaticamente pela autorização anterior são invalidados e removidos do acesso dos colaboradores.
+- A competência volta para aberta e exige novo cálculo, fechamento e nova autorização.
+- A nova autorização recebe um novo código e novos holerites são gerados.
+- A tela da competência exibe o histórico de autorizações anteriores reabertas.
+- Eventos de auditoria e segurança registram reabertura, autorização anterior, motivo e quantidade de holerites invalidados.

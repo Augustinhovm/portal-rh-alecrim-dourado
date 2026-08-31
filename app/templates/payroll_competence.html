@@ -35,6 +35,45 @@
 <section class="panel payroll-authorized-panel">
   <div class="section-heading"><div><span class="section-kicker">FOLHA AUTORIZADA</span><h2>Holerites disponibilizados</h2><p class="muted">Os demonstrativos individuais desta competência já estão disponíveis em “Meus holerites” para cada colaborador.</p></div><a class="btn secondary" href="{{url_for('rh.payroll_competence_sheet_pdf',competence_id=comp.id)}}">Baixar folha autorizada</a></div>
   <div class="payroll-authorization-record"><strong>Código:</strong> {{closure.authorization_code}} · <strong>Autorizada em:</strong> {{closure.authorized_at.strftime('%d/%m/%Y %H:%M')}} · <strong>Responsável:</strong> {{closure.authorizer.email if closure.authorizer else 'RH'}}</div>
+
+  <details class="admin-tool payroll-reopen-authorized">
+    <summary>Preciso reabrir esta folha autorizada</summary>
+    <div class="alert warning"><strong>Atenção:</strong> ao reabrir, os holerites gerados por esta autorização deixam de ficar disponíveis aos colaboradores. A autorização atual será preservada no histórico e será necessário recalcular, fechar e autorizar a folha novamente.</div>
+    <form method="post" action="{{url_for('rh.payroll_competence_reopen',competence_id=comp.id)}}" class="form-grid compact-form">
+      <label class="full">Motivo obrigatório
+        <input name="reason" required minlength="5" placeholder="Ex.: correção de horas extras de colaborador">
+      </label>
+      <label>Senha do administrador
+        <input type="password" name="password" required autocomplete="current-password">
+      </label>
+      <label class="signature-checkbox full">
+        <input type="checkbox" name="confirm_reopen_authorized" value="1" required>
+        <span>Confirmo a reabertura e a invalidação dos holerites atualmente liberados desta competência.</span>
+      </label>
+      <div class="full"><button type="submit" class="secondary">Reabrir folha autorizada</button></div>
+    </form>
+  </details>
+</section>
+{% endif %}
+
+{% if authorization_history %}
+<section class="panel">
+  <div class="section-heading"><div><span class="section-kicker">AUDITORIA</span><h2>Histórico de autorizações anteriores</h2><p class="muted">Autorizações que foram posteriormente reabertas permanecem registradas para rastreabilidade.</p></div></div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Autorização anterior</th><th>Autorizada em</th><th>Reaberta em</th><th>Responsável</th><th>Líquido anterior</th><th>Motivo</th></tr>
+      {% for hist in authorization_history %}
+      <tr>
+        <td><strong>{{hist.authorization_code}}</strong></td>
+        <td>{{hist.authorized_at.strftime('%d/%m/%Y %H:%M')}}</td>
+        <td>{{hist.reopened_at.strftime('%d/%m/%Y %H:%M')}}</td>
+        <td>{{hist.reopener.email if hist.reopener else 'RH'}}</td>
+        <td>R$ {{'%.2f'|format(hist.net_total|float)}}</td>
+        <td>{{hist.reopen_reason}}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
 </section>
 {% endif %}
 
