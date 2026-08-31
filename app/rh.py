@@ -1865,111 +1865,132 @@ def _payroll_logo_path():
 
 def _payroll_pdf_styles():
     styles = getSampleStyleSheet()
-    gold = colors.HexColor("#C9A227")
-    charcoal = colors.HexColor("#2B2A28")
-    muted = colors.HexColor("#6B6B68")
-    styles.add(ParagraphStyle(name="PayrollTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=15, leading=18, textColor=charcoal, spaceAfter=4))
-    styles.add(ParagraphStyle(name="PayrollSub", parent=styles["BodyText"], fontSize=8.5, leading=11, textColor=muted))
-    styles.add(ParagraphStyle(name="PayrollSmall", parent=styles["BodyText"], fontSize=7.5, leading=9.5, textColor=charcoal))
+    gold = colors.HexColor("#D5A515")
+    gold_soft = colors.HexColor("#FBF6E7")
+    charcoal = colors.HexColor("#242422")
+    muted = colors.HexColor("#70736F")
+    line = colors.HexColor("#E5E7E3")
+    green = colors.HexColor("#2F6B55")
+    styles.add(ParagraphStyle(name="PayrollTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=16, leading=19, textColor=charcoal, spaceAfter=3))
+    styles.add(ParagraphStyle(name="PayrollSub", parent=styles["BodyText"], fontSize=8.2, leading=10.5, textColor=muted))
+    styles.add(ParagraphStyle(name="PayrollSmall", parent=styles["BodyText"], fontSize=7.7, leading=9.7, textColor=charcoal))
     styles.add(ParagraphStyle(name="PayrollSmallRight", parent=styles["PayrollSmall"], alignment=TA_RIGHT))
-    return styles, gold, charcoal, muted
+    styles.add(ParagraphStyle(name="PayrollLabel", parent=styles["PayrollSmall"], fontName="Helvetica-Bold", fontSize=7, textColor=muted, leading=8.5))
+    styles.add(ParagraphStyle(name="PayrollValue", parent=styles["PayrollSmall"], fontName="Helvetica-Bold", fontSize=9.2, leading=11, textColor=charcoal))
+    styles.add(ParagraphStyle(name="PayrollNet", parent=styles["PayrollSmall"], fontName="Helvetica-Bold", fontSize=14, leading=16, textColor=green))
+    return styles, gold, gold_soft, charcoal, muted, line, green
 
 
-def _payroll_header_story(title, subtitle):
-    styles, gold, charcoal, muted = _payroll_pdf_styles()
+def _payroll_header_story(title, subtitle, width=183*mm):
+    styles, gold, gold_soft, charcoal, muted, line, green = _payroll_pdf_styles()
     logo = _payroll_logo_path()
-    left = []
+    brand=[]
     if logo:
-        left.append(RLImage(logo, width=53*mm, height=8*mm))
-        left.append(Spacer(1, 3))
-    left.append(Paragraph("ASSOCIACAO ALECRIM DOURADO", styles["PayrollSmall"]))
-    right = [Paragraph(title, styles["PayrollTitle"]), Paragraph(subtitle, styles["PayrollSub"])]
-    header = Table([[left, right]], colWidths=[68*mm, 115*mm])
+        brand.append(RLImage(logo, width=48*mm, height=7.2*mm))
+    else:
+        brand.append(Paragraph("ASSOCIACAO ALECRIM DOURADO", styles["PayrollValue"]))
+    title_cell=[Paragraph(title,styles["PayrollTitle"]),Paragraph(subtitle,styles["PayrollSub"])]
+    header=Table([[brand,title_cell]],colWidths=[width*.38,width*.62])
     header.setStyle(TableStyle([
-        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-        ("ALIGN",(1,0),(1,0),"RIGHT"),
-        ("BOTTOMPADDING",(0,0),(-1,-1),7),
-        ("LINEBELOW",(0,0),(-1,-1),1.4,gold),
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("ALIGN",(1,0),(1,0),"RIGHT"),
+        ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),
+        ("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),7),
+        ("LINEBELOW",(0,0),(-1,-1),2,gold),
     ]))
-    return [header, Spacer(1, 8)]
+    return [header,Spacer(1,7)]
+
+
+def _payroll_status_card(comp, calculations, width):
+    styles,gold,gold_soft,charcoal,muted,line,green=_payroll_pdf_styles()
+    closure=comp.closure
+    authorized=bool(closure and closure.status=="authorized")
+    status="AUTORIZADA" if authorized else "FECHADA - AGUARDANDO AUTORIZACAO"
+    total_gross=sum((Decimal(c.gross_amount or 0) for c in calculations),Decimal("0"))
+    total_ded=sum((Decimal(c.deductions_amount or 0) for c in calculations),Decimal("0"))
+    total_net=sum((Decimal(c.net_amount or 0) for c in calculations),Decimal("0"))
+    cells=[
+        [Paragraph("STATUS",styles["PayrollLabel"]),Paragraph("COLABORADORES",styles["PayrollLabel"]),Paragraph("PROVENTOS",styles["PayrollLabel"]),Paragraph("DESCONTOS",styles["PayrollLabel"]),Paragraph("LIQUIDO DA FOLHA",styles["PayrollLabel"])],
+        [Paragraph(status,styles["PayrollValue"]),Paragraph(str(len(calculations)),styles["PayrollValue"]),Paragraph(_fmt_brl(total_gross),styles["PayrollValue"]),Paragraph(_fmt_brl(total_ded),styles["PayrollValue"]),Paragraph(_fmt_brl(total_net),styles["PayrollNet"])],
+    ]
+    t=Table(cells,colWidths=[width*.25,width*.13,width*.19,width*.19,width*.24])
+    t.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,-1),gold_soft),("BOX",(0,0),(-1,-1),.6,line),
+        ("INNERGRID",(0,0),(-1,-1),.4,line),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),
+        ("LEFTPADDING",(0,0),(-1,-1),7),("RIGHTPADDING",(0,0),(-1,-1),7),
+    ]))
+    return t
 
 
 def _payroll_consolidated_pdf(comp):
-    calculations=(PayrollEmployeeCalculation.query
-        .filter_by(competence_id=comp.id)
-        .join(Employee, Employee.id==PayrollEmployeeCalculation.employee_id)
+    calculations=(PayrollEmployeeCalculation.query.filter_by(competence_id=comp.id)
+        .join(Employee,Employee.id==PayrollEmployeeCalculation.employee_id)
         .order_by(Employee.full_name.asc()).all())
-    if not calculations:
-        raise ValueError("A competência não possui cálculos para gerar a folha.")
-    styles,gold,charcoal,muted=_payroll_pdf_styles()
-    buff=BytesIO()
-    doc=SimpleDocTemplate(buff,pagesize=landscape(A4),rightMargin=10*mm,leftMargin=10*mm,topMargin=10*mm,bottomMargin=10*mm)
-    story=_payroll_header_story("FOLHA DE PAGAMENTO - RESUMO",f"Competência {comp.month:02d}/{comp.year} | Documento gerado pelo Portal RH")
+    if not calculations: raise ValueError("A competência não possui cálculos para gerar a folha.")
+    styles,gold,gold_soft,charcoal,muted,line,green=_payroll_pdf_styles()
+    buff=BytesIO(); page_width=277*mm
+    doc=SimpleDocTemplate(buff,pagesize=landscape(A4),rightMargin=10*mm,leftMargin=10*mm,topMargin=9*mm,bottomMargin=10*mm)
+    story=_payroll_header_story("RELATORIO CONSOLIDADO DA FOLHA",f"Competência {comp.month:02d}/{comp.year} | Conferência e autorização interna",page_width)
+    story.extend([_payroll_status_card(comp,calculations,page_width),Spacer(1,9)])
+    data=[["COLABORADOR","CARGO / PROJETO","SALARIO-BASE","PROVENTOS","INSS","IRRF","DESCONTOS","LIQUIDO"]]
+    tg=td=tn=Decimal("0")
+    for i,calc in enumerate(calculations):
+        emp=calc.employee; tg+=Decimal(calc.gross_amount or 0); td+=Decimal(calc.deductions_amount or 0); tn+=Decimal(calc.net_amount or 0)
+        data.append([Paragraph(f"<b>{emp.full_name}</b>",styles["PayrollSmall"]),Paragraph(f"{emp.job_title}<br/><font color='#70736F'>{emp.project}</font>",styles["PayrollSmall"]),_fmt_brl(calc.base_salary),_fmt_brl(calc.gross_amount),_fmt_brl(calc.inss_amount),_fmt_brl(calc.irrf_amount),_fmt_brl(calc.deductions_amount),_fmt_brl(calc.net_amount)])
+    data.append(["TOTAL DA FOLHA","","",_fmt_brl(tg),"","",_fmt_brl(td),_fmt_brl(tn)])
+    table=Table(data,colWidths=[54*mm,49*mm,27*mm,28*mm,23*mm,23*mm,28*mm,31*mm],repeatRows=1)
+    ts=[("BACKGROUND",(0,0),(-1,0),charcoal),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),7.2),("LINEBELOW",(0,0),(-1,0),1,gold),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("ALIGN",(2,1),(-1,-1),"RIGHT"),("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6)]
+    for row in range(1,len(data)-1):
+        ts.append(("BACKGROUND",(0,row),(-1,row),colors.white if row%2 else colors.HexColor("#FAFAF8")))
+        ts.append(("LINEBELOW",(0,row),(-1,row),.35,line))
+    ts.extend([("BACKGROUND",(0,-1),(-1,-1),gold_soft),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),("LINEABOVE",(0,-1),(-1,-1),1,gold),("TEXTCOLOR",(7,-1),(7,-1),green)])
+    table.setStyle(TableStyle(ts)); story.extend([table,Spacer(1,8)])
     closure=comp.closure
-    status="AUTORIZADA" if closure and closure.status=="authorized" else "FECHADA - AGUARDANDO AUTORIZACAO"
-    story.append(Paragraph(f"Status: <b>{status}</b> | Colaboradores com valores: <b>{len(calculations)}</b>",styles["PayrollSmall"]))
-    story.append(Spacer(1,7))
-    data=[["Colaborador","Cargo / Projeto","Salário-base","Proventos","INSS","IRRF","Descontos","Líquido"]]
-    tg=td=tn=Decimal('0')
-    for calc in calculations:
-        emp=calc.employee
-        tg+=Decimal(calc.gross_amount or 0); td+=Decimal(calc.deductions_amount or 0); tn+=Decimal(calc.net_amount or 0)
-        data.append([
-            Paragraph(emp.full_name,styles["PayrollSmall"]),
-            Paragraph(f"{emp.job_title}<br/><font color='#6B6B68'>{emp.project}</font>",styles["PayrollSmall"]),
-            _fmt_brl(calc.base_salary),_fmt_brl(calc.gross_amount),_fmt_brl(calc.inss_amount),_fmt_brl(calc.irrf_amount),_fmt_brl(calc.deductions_amount),_fmt_brl(calc.net_amount)
-        ])
-    data.append(["TOTAL","","",_fmt_brl(tg),"","",_fmt_brl(td),_fmt_brl(tn)])
-    table=Table(data,colWidths=[58*mm,53*mm,27*mm,27*mm,24*mm,24*mm,27*mm,28*mm],repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND",(0,0),(-1,0),charcoal),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
-        ("FONTSIZE",(0,0),(-1,-1),7.2),("GRID",(0,0),(-1,-2),.3,colors.HexColor('#D9DDD9')),("VALIGN",(0,0),(-1,-1),"TOP"),
-        ("ALIGN",(2,1),(-1,-1),"RIGHT"),("BACKGROUND",(0,-1),(-1,-1),colors.HexColor('#F5F0DF')),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),
-        ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)
-    ]))
-    story.append(table)
-    story.append(Spacer(1,8))
-    story.append(Paragraph("Este relatório consolida os valores calculados e registrados no Portal RH para a competência. A autorização interna não substitui obrigações legais acessórias, eSocial, DCTFWeb ou FGTS Digital.",styles["PayrollSub"]))
+    footer=[]
     if closure:
-        story.append(Spacer(1,4))
-        story.append(Paragraph(f"Fechamento: {closure.closed_at.strftime('%d/%m/%Y %H:%M')} | Responsável: {closure.closer.email if closure.closer else 'RH'}" + (f" | Autorização: {closure.authorized_at.strftime('%d/%m/%Y %H:%M')} | Código: {closure.authorization_code}" if closure.authorized_at else ""),styles["PayrollSub"]))
+        footer.append(f"Fechada em {closure.closed_at.strftime('%d/%m/%Y %H:%M')} por {closure.closer.email if closure.closer else 'RH'}")
+        if closure.authorized_at: footer.append(f"Autorizada em {closure.authorized_at.strftime('%d/%m/%Y %H:%M')} - código {closure.authorization_code}")
+    story.append(Paragraph(" | ".join(footer) if footer else "Relatório gerado pelo Portal RH.",styles["PayrollSub"]))
+    story.append(Spacer(1,3)); story.append(Paragraph("Documento de conferência interna. Os valores devem permanecer conciliados com eSocial, DCTFWeb, FGTS Digital e demais obrigações oficiais aplicáveis.",styles["PayrollSub"]))
     doc.build(story); buff.seek(0); return buff
 
 
 def _payroll_employee_payslip_pdf(calc, closure):
     comp=calc.competence; emp=calc.employee
-    styles,gold,charcoal,muted=_payroll_pdf_styles()
-    buff=BytesIO(); doc=SimpleDocTemplate(buff,pagesize=A4,rightMargin=14*mm,leftMargin=14*mm,topMargin=12*mm,bottomMargin=12*mm)
-    story=_payroll_header_story("HOLERITE / DEMONSTRATIVO DE PAGAMENTO",f"Competência {comp.month:02d}/{comp.year}")
+    styles,gold,gold_soft,charcoal,muted,line,green=_payroll_pdf_styles()
+    buff=BytesIO(); width=183*mm
+    doc=SimpleDocTemplate(buff,pagesize=A4,rightMargin=14*mm,leftMargin=14*mm,topMargin=10*mm,bottomMargin=10*mm)
+    story=_payroll_header_story("DEMONSTRATIVO DE PAGAMENTO",f"Competência {comp.month:02d}/{comp.year}",width)
+    # employee identification card
     info=Table([
-        ["Colaborador",emp.full_name,"CPF",emp.cpf],
-        ["Cargo",emp.job_title,"Projeto",emp.project],
-        ["Matrícula",emp.registration or "-","Admissão",emp.admission_date.strftime('%d/%m/%Y') if emp.admission_date else "-"],
-    ],colWidths=[26*mm,66*mm,23*mm,62*mm])
-    info.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor('#D9DDD9')),("BACKGROUND",(0,0),(0,-1),colors.HexColor('#F6F2E4')),("BACKGROUND",(2,0),(2,-1),colors.HexColor('#F6F2E4')),("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),("FONTNAME",(2,0),(2,-1),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
+        [Paragraph("COLABORADOR",styles["PayrollLabel"]),Paragraph("CPF",styles["PayrollLabel"]),Paragraph("MATRICULA",styles["PayrollLabel"]),Paragraph("ADMISSAO",styles["PayrollLabel"])],
+        [Paragraph(emp.full_name,styles["PayrollValue"]),Paragraph(emp.cpf or "-",styles["PayrollSmall"]),Paragraph(emp.registration or "-",styles["PayrollSmall"]),Paragraph(emp.admission_date.strftime('%d/%m/%Y') if emp.admission_date else "-",styles["PayrollSmall"])],
+        [Paragraph("CARGO",styles["PayrollLabel"]),Paragraph("PROJETO / SERVICO",styles["PayrollLabel"]),"",Paragraph("COMPETENCIA",styles["PayrollLabel"])],
+        [Paragraph(emp.job_title or "-",styles["PayrollSmall"]),Paragraph(emp.project or "-",styles["PayrollSmall"]),"",Paragraph(f"{comp.month:02d}/{comp.year}",styles["PayrollValue"])],
+    ],colWidths=[76*mm,42*mm,30*mm,35*mm])
+    info.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#FAFAF8")),("SPAN",(1,2),(2,2)),("SPAN",(1,3),(2,3)),("BOX",(0,0),(-1,-1),.6,line),("INNERGRID",(0,0),(-1,-1),.35,line),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),("LEFTPADDING",(0,0),(-1,-1),7),("RIGHTPADDING",(0,0),(-1,-1),7)]))
     story.extend([info,Spacer(1,9)])
     items=PayrollCalculationItem.query.filter_by(calculation_id=calc.id).order_by(PayrollCalculationItem.sort_order,PayrollCalculationItem.id).all()
-    data=[["Cód.","Descrição","Referência","Proventos","Descontos"]]
+    data=[["COD.","DESCRICAO","REFERENCIA","PROVENTOS","DESCONTOS"]]
     for item in items:
-        earning=_fmt_brl(item.amount) if item.nature=='earning' else ''
-        deduction=_fmt_brl(item.amount) if item.nature=='deduction' else ''
-        data.append([item.rubric_code,Paragraph(item.description,styles['PayrollSmall']),item.reference or '-',earning,deduction])
+        data.append([item.rubric_code,Paragraph(item.description,styles["PayrollSmall"]),item.reference or "-",_fmt_brl(item.amount) if item.nature=="earning" else "",_fmt_brl(item.amount) if item.nature=="deduction" else ""])
     data.append(["","TOTAIS","",_fmt_brl(calc.gross_amount),_fmt_brl(calc.deductions_amount)])
-    tab=Table(data,colWidths=[18*mm,69*mm,40*mm,25*mm,25*mm],repeatRows=1)
-    tab.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),charcoal),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("GRID",(0,0),(-1,-2),.3,colors.HexColor('#D9DDD9')),("FONTSIZE",(0,0),(-1,-1),7.7),("ALIGN",(3,1),(-1,-1),"RIGHT"),("BACKGROUND",(0,-1),(-1,-1),colors.HexColor('#F5F0DF')),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
-    story.extend([tab,Spacer(1,10)])
-    summary=Table([
-        ["Salário-base",_fmt_brl(calc.base_salary),"Base INSS",_fmt_brl(calc.inss_base)],
-        ["INSS",_fmt_brl(calc.inss_amount),"Base IRRF",_fmt_brl(calc.irrf_base)],
-        ["IRRF",_fmt_brl(calc.irrf_amount),"Líquido a receber",_fmt_brl(calc.net_amount)],
-    ],colWidths=[31*mm,45*mm,31*mm,70*mm])
-    summary.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.35,colors.HexColor('#D9DDD9')),("BACKGROUND",(0,0),(0,-1),colors.HexColor('#F7F7F5')),("BACKGROUND",(2,0),(2,-1),colors.HexColor('#F7F7F5')),("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),("FONTNAME",(2,0),(2,-1),"Helvetica-Bold"),("FONTNAME",(3,2),(3,2),"Helvetica-Bold"),("TEXTCOLOR",(3,2),(3,2),charcoal),("ALIGN",(1,0),(1,-1),"RIGHT"),("ALIGN",(3,0),(3,-1),"RIGHT"),("FONTSIZE",(0,0),(-1,-1),8),("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
-    story.extend([summary,Spacer(1,12)])
-    story.append(Paragraph(f"Folha autorizada internamente pelo RH em {closure.authorized_at.strftime('%d/%m/%Y %H:%M')}. Código de autorização: <b>{closure.authorization_code}</b>.",styles['PayrollSmall']))
-    story.append(Spacer(1,4))
-    story.append(Paragraph("Documento disponibilizado de forma individual e confidencial no Portal RH. O cálculo deve permanecer conciliado com as obrigações oficiais da entidade.",styles['PayrollSub']))
+    tab=Table(data,colWidths=[17*mm,69*mm,39*mm,29*mm,29*mm],repeatRows=1)
+    ts=[("BACKGROUND",(0,0),(-1,0),charcoal),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("LINEBELOW",(0,0),(-1,0),1,gold),("FONTSIZE",(0,0),(-1,-1),7.6),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("ALIGN",(3,1),(-1,-1),"RIGHT"),("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6)]
+    for row in range(1,len(data)-1):
+        ts.append(("BACKGROUND",(0,row),(-1,row),colors.white if row%2 else colors.HexColor("#FAFAF8"))); ts.append(("LINEBELOW",(0,row),(-1,row),.35,line))
+    ts.extend([("BACKGROUND",(0,-1),(-1,-1),gold_soft),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),("LINEABOVE",(0,-1),(-1,-1),1,gold)])
+    tab.setStyle(TableStyle(ts)); story.extend([tab,Spacer(1,9)])
+    # prominent net pay + bases
+    net=Table([[Paragraph("LIQUIDO A RECEBER",styles["PayrollLabel"]),Paragraph(_fmt_brl(calc.net_amount),styles["PayrollNet"])],[Paragraph("Total de proventos",styles["PayrollSmall"]),Paragraph(_fmt_brl(calc.gross_amount),styles["PayrollSmallRight"])],[Paragraph("Total de descontos",styles["PayrollSmall"]),Paragraph(_fmt_brl(calc.deductions_amount),styles["PayrollSmallRight"])]],colWidths=[95*mm,88*mm])
+    net.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),gold_soft),("BOX",(0,0),(-1,-1),.7,line),("LINEBELOW",(0,0),(-1,-2),.35,line),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("ALIGN",(1,0),(-1,-1),"RIGHT"),("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7),("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
+    story.extend([net,Spacer(1,8)])
+    bases=Table([[Paragraph("SALARIO-BASE",styles["PayrollLabel"]),Paragraph("BASE INSS",styles["PayrollLabel"]),Paragraph("INSS",styles["PayrollLabel"]),Paragraph("BASE IRRF",styles["PayrollLabel"]),Paragraph("IRRF",styles["PayrollLabel"])],[_fmt_brl(calc.base_salary),_fmt_brl(calc.inss_base),_fmt_brl(calc.inss_amount),_fmt_brl(calc.irrf_base),_fmt_brl(calc.irrf_amount)]],colWidths=[36.6*mm]*5)
+    bases.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#F4F5F2")),("BOX",(0,0),(-1,-1),.5,line),("INNERGRID",(0,0),(-1,-1),.35,line),("ALIGN",(0,0),(-1,-1),"CENTER"),("FONTSIZE",(0,1),(-1,1),7.5),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
+    story.extend([bases,Spacer(1,11)])
+    story.append(Paragraph(f"Folha autorizada pelo RH em {closure.authorized_at.strftime('%d/%m/%Y %H:%M')}. Código de autorização: <b>{closure.authorization_code}</b>.",styles["PayrollSmall"]))
+    story.append(Spacer(1,3)); story.append(Paragraph("Documento individual e confidencial disponibilizado no Portal RH da Associação Alecrim Dourado.",styles["PayrollSub"]))
     doc.build(story); buff.seek(0); return buff
-
 
 def _save_generated_payslip(calc, closure):
     emp=calc.employee; comp=calc.competence

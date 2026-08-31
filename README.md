@@ -282,3 +282,7 @@ Calcula salário-base, rubricas variáveis confirmadas pelo RH, salário-famíli
 
 ## V9.5 - Fechamento, PDF da folha e holerites personalizados
 Após o cálculo, o RH pode fechar a competência, gerar um PDF consolidado com nome completo e valores de todos os colaboradores calculados, conferir e autorizar a folha mediante senha do administrador. Na autorização, o Portal gera e disponibiliza automaticamente um holerite individual com identidade visual da Associação Alecrim Dourado, logo, proventos, descontos, bases, líquido e código de autorização. A competência fechada fica bloqueada para alterações; antes da autorização pode ser reaberta com justificativa.
+
+
+## V9.5.1 - Redesign dos PDFs da Folha
+Novo visual para o relatório consolidado e para os holerites gerados pelo Portal: cabeçalho institucional mais limpo, cartões de resumo, hierarquia tipográfica, tabelas com linhas alternadas, destaque para líquido a receber e melhor aproveitamento da página, mantendo a identidade dourada/grafite da Associação Alecrim Dourado.
